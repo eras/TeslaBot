@@ -1,0 +1,15 @@
+[Tesla]
+email=
+
+[Matrix]
+homeserver=https://matrix.org/
+mxid=@example:matrix.org
+password=password
+room=#tesla:matrix.org
+device_id=
+access_token=
+
+[Slack]
+slackid=
+token=
+channel=34343i9

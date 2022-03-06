@@ -1,0 +1,6 @@
+*~
+__pycache__
+venv
+config.ini
+.emacs.desktop
+.emacs.desktop.lock
