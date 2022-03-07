@@ -10,6 +10,11 @@ from typing import Optional
 from . import control
 from .config import Config, ConfigElement
 
+from . import log
+
+logger = log.getLogger(__name__)
+logger.setLevel(log.DEBUG)
+
 class ConfigSave(ConfigElement):
     control: "MatrixControl"
 
