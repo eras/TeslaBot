@@ -4,6 +4,7 @@ from . import config
 async def async_main():
     args = config.get_args()
     control = matrix.MatrixControl()
+    config_ = config.Config(filename=args.config)
     await control.setup()
     await control.run()
 
