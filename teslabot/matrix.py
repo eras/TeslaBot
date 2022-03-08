@@ -3,6 +3,7 @@ import os
 import errno
 from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
+from nio.exceptions import OlmUnverifiedDeviceError
 from configparser import ConfigParser
 from typing import Optional, List
 
@@ -101,14 +102,20 @@ class MatrixControl(control.Control):
             logger.error(f"No room id known, cannot send \"{message}\"")
         else:
             logger.info(f"> {message}")
-            await self.client.room_send(
-                room_id=self.room_id,
-                message_type="m.room.message",
-                content = {
-                    "msgtype": "m.notice", # or m.text
-                    "body": message
-                }
-        )
+            try:
+                await self.client.room_send(
+                    room_id=self.room_id,
+                    message_type="m.room.message",
+                    content = {
+                        "msgtype": "m.notice", # or m.text
+                        "body": message
+                    })
+            except OlmUnverifiedDeviceError as err:
+                logger.error(f"Cannot send message due to verification error: {err}")
+                # logger.info(f"These are all known devices:")
+                # device_store: crypto.DeviceStore = device_store
+                # [logger.info(f"\t{device.user_id}\t {device.device_id}\t {device.trust_state}\t  {device.display_name}") for device in device_store]
+                pass
 
     async def _invite_callback(self, room: MatrixRoom, event: Event) -> None:
         assert isinstance(event, InviteEvent)
