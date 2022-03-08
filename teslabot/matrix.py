@@ -149,4 +149,4 @@ class MatrixControl(control.Control):
         self.client.add_response_callback(self._sync_callback, SyncResponse) # type: ignore
         self.client.add_event_callback(self._message_callback, RoomMessageText)
         self.client.add_event_callback(self._invite_callback, InviteEvent) # type: ignore
-        await self.client.sync_forever(timeout=30000, since=self.sync_token)
+        await self.client.sync_forever(timeout=30000, since=self.sync_token, full_state=True)
