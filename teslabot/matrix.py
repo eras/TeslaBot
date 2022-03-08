@@ -105,7 +105,7 @@ class MatrixControl(control.Control):
                 room_id=self.room_id,
                 message_type="m.room.message",
                 content = {
-                    "msgtype": "m.text",
+                    "msgtype": "m.notice", # or m.text
                     "body": message
                 }
         )
