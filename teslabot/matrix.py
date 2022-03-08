@@ -51,7 +51,7 @@ class MatrixControl(control.Control):
         if "sync_token" in self.state.state["matrix"] is not None and \
            self.state.state["matrix"]["sync_token"] != "":
             self.sync_token = self.state.state["matrix"]["sync_token"]
-        room_id = self.state.state["matrix"]["roomid"] if "roomid" in self.state.state["matrix"] else None
+        room_id = self.state.state["matrix"]["room_id"] if "room_id" in self.state.state["matrix"] else None
         if room_id == "":
             room_id = None
         self.room_id = room_id
