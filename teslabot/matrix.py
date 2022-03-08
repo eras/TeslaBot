@@ -4,7 +4,7 @@ import errno
 from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from configparser import ConfigParser
-from typing import Optional
+from typing import Optional, List
 
 from . import control
 from .utils import get_optional
@@ -12,6 +12,7 @@ from .config import Config
 from .state import State, StateElement
 from . import log
 from .env import Env
+from . import commands
 
 logger = log.getLogger(__name__)
 logger.setLevel(log.DEBUG)
@@ -39,6 +40,7 @@ class MatrixControl(control.Control):
     state: State
     logged_in: bool
     sync_token: Optional[str]
+    local_commands: commands.Commands[None]
 
     def __init__(self, env: Env) -> None:
         super().__init__()
@@ -51,6 +53,9 @@ class MatrixControl(control.Control):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
+
+        self.local_commands = commands.Commands()
+        self.local_commands.register(commands.Function[None]("ping", self._command_ping))
 
         self.state.add_element(StateSave(self))
         self.client = AsyncClient(self.config.config["matrix"]["homeserver"],
@@ -88,6 +93,9 @@ class MatrixControl(control.Control):
                 logger.info(f"Login successful")
                 self.state.save()
 
+    async def _command_ping(self, context: None, args: List[str]) -> None:
+        await self.send_message("pong")
+
     async def send_message(self, message: str) -> None:
         if self.room_id is None:
             logger.error(f"No room id known, cannot send \"{message}\"")
@@ -116,7 +124,14 @@ class MatrixControl(control.Control):
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
         assert isinstance(event, RoomMessageText)
         if room.room_id == self.room_id and re.match(r"^!", event.body):
-            await self.callback.command_callback(event.body[1:])
+            try:
+                invocation = commands.Invocation.parse(event.body[1:])
+                if self.local_commands.has_command(invocation.name):
+                    await self.local_commands.invoke(None, invocation)
+                else:
+                    await self.callback.command_callback(invocation)
+            except commands.InvocationParseError:
+                logger.error(f"Failed to parse command: {event.body[1:]}")
         # print(
         #     f"Message received in room {room.display_name}\n"
         #     f"{room.user_name(event.sender)} | {event.body}"

@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
+from .commands import Invocation
 
 class ControlCallback(ABC):
     @abstractmethod
-    async def command_callback(self, message: str) -> None:
+    async def command_callback(self, invocation: Invocation) -> None:
         """Called when a bot command is received"""
 
 class DefaultControlCallback(ControlCallback):
-    async def command_callback(self, message: str) -> None:
-        print(f"command_callback({message})")
+    async def command_callback(self, invocation: Invocation) -> None:
+        print(f"command_callback({invocation.name} {invocation.args})")
 
 class Control(ABC):
     callback: ControlCallback
