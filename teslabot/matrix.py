@@ -7,68 +7,76 @@ from typing import Optional
 
 from . import control
 from .utils import get_optional
-from .config import Config, ConfigElement
+from .config import Config
+from .state import State, StateElement
 from . import log
+from .env import Env
 
 logger = log.getLogger(__name__)
 logger.setLevel(log.DEBUG)
 
-class ConfigSave(ConfigElement):
+class StateSave(StateElement):
     control: "MatrixControl"
 
     def __init__(self, control: "MatrixControl") -> None:
         self.control = control
 
-    def save(self, config: ConfigParser) -> None:
+    def save(self, state: ConfigParser) -> None:
         if self.control.logged_in:
-            config["matrix"]["room_id"]      = get_optional(self.control.room_id, "")
-            config["matrix"]["sync_token"]   = get_optional(self.control.sync_token, "")
-            config["matrix"]["mxid"]         = self.control.client.user_id
-            config["matrix"]["device_id"]    = get_optional(self.control.client.device_id, "")
-            config["matrix"]["access_token"] = self.control.client.access_token
+            if not "matrix" in state:
+                state["matrix"] = {}
+            st = state["matrix"]
+            st["room_id"]      = get_optional(self.control.room_id, "")
+            st["sync_token"]   = get_optional(self.control.sync_token, "")
+            st["device_id"]    = get_optional(self.control.client.device_id, "")
+            st["access_token"] = self.control.client.access_token
 
 class MatrixControl(control.Control):
     client: AsyncClient
     room_id: Optional[str]
     config: Config
+    state: State
     logged_in: bool
     sync_token: Optional[str]
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, env: Env) -> None:
         super().__init__()
-        self.config = config
-        self.config.add_element(ConfigSave(self))
+        self.config = env.config
+        self.state = env.state
+        self.state.add_element(StateSave(self))
         self.client = AsyncClient(self.config.config["matrix"]["homeserver"],
                                   self.config.config["matrix"]["mxid"])
         self.logged_in = False
         self.sync_token = None
-        if "sync_token" in self.config.config["matrix"] is not None and \
-           self.config.config["matrix"]["sync_token"] != "":
-            self.sync_token = self.config.config["matrix"]["sync_token"]
-        room_id = self.config.config["matrix"]["roomid"] if "roomid" in self.config.config["matrix"] else None
+        if "sync_token" in self.state.state["matrix"] is not None and \
+           self.state.state["matrix"]["sync_token"] != "":
+            self.sync_token = self.state.state["matrix"]["sync_token"]
+        room_id = self.state.state["matrix"]["roomid"] if "roomid" in self.state.state["matrix"] else None
         if room_id == "":
             room_id = None
         self.room_id = room_id
 
     async def setup(self) -> None:
-        mx_config = self.config.config["matrix"]
-        if "matrix" in self.config.config and \
-           "access_token" in self.config.config["matrix"] and \
-           self.config.config["matrix"]["access_token"] != "":
+        mx_config = self.config.config["matrix"] if "matrix" in "matrix" in self.config.config else None
+        mx_state = self.state.state["matrix"] if "matrix" in "matrix" in self.state.state else None
+        if mx_config is None:
+            logger.error(f"Cannot setup matrix due to missing configuration")
+            return
+        if mx_state is not None and "access_token" in mx_state and mx_state["access_token"] != "":
             self.logged_in = True
             logger.debug(f"Using pre-existing credentials")
             self.client.user_id      = mx_config["mxid"]
-            self.client.device_id    = mx_config["device_id"]
-            self.client.access_token = mx_config["access_token"]
+            self.client.device_id    = mx_state["device_id"]
+            self.client.access_token = mx_state["access_token"]
         else:
             logger.debug(f"Logging in")
-            login = await self.client.login(self.config.config["matrix"]["password"])
+            login = await self.client.login(mx_config["password"])
             if isinstance(login, LoginError):
                 logger.error(f"Failed to log in")
             elif isinstance(login, LoginResponse):
                 self.logged_in = True
                 logger.info(f"Login successful")
-                self.config.save()
+                self.state.save()
 
     async def send_message(self, message: str) -> None:
         if self.room_id is None:
@@ -90,7 +98,7 @@ class MatrixControl(control.Control):
             logger.debug(f"invite callback to {room} event {event}: joining")
             await self.client.join(room.room_id)
             self.room_id = room.room_id
-            self.config.save()
+            self.state.save()
             print(f"Room {room.name} is encrypted: {room.encrypted}" )
         else:
             logger.debug(f"invite callback to {room} event {event}: not joining, we are already in {self.room_id}")
@@ -107,9 +115,12 @@ class MatrixControl(control.Control):
     async def _sync_callback(self, response: SyncResponse) -> None:
         logger.debug(f"sync callback: {type(response)} {response}")
         self.sync_token = response.next_batch
-        self.config.save()
+        self.state.save()
 
     async def run(self) -> None:
+        if not self.logged_in:
+            logger.error(f"Cannot run, not logged in")
+            return
         self.client.add_response_callback(self._sync_callback, SyncResponse) # type: ignore
         self.client.add_event_callback(self._message_callback, RoomMessageText)
         self.client.add_event_callback(self._invite_callback, InviteEvent) # type: ignore

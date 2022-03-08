@@ -2,5 +2,6 @@
 __pycache__
 venv
 config.ini
+state.ini
 .emacs.desktop
 .emacs.desktop.lock

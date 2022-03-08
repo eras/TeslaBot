@@ -5,9 +5,6 @@ email=
 homeserver=https://matrix.org/
 mxid=@example:matrix.org
 password=password
-room=#tesla:matrix.org
-device_id=
-access_token=
 
 [Slack]
 slackid=
