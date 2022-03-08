@@ -1,3 +1,4 @@
+import asyncio
 import re
 import os
 import errno
@@ -149,6 +150,22 @@ class MatrixControl(control.Control):
         self.sync_token = response.next_batch
         self.state.save()
 
+    def trust_devices(self, user_id: str, device_list: Optional[str] = None) -> None:
+        # https://matrix-nio.readthedocs.io/en/latest/examples.html?highlight=invite#manual-encryption-key-verification
+        logger.info(f"Trusting {user_id} {device_list}")
+        for device_id, olm_device in self.client.device_store[user_id].items():
+            if device_list and device_id not in device_list:
+                # a list of trusted devices was provided, but this ID is not in
+                # that list. That's an issue.
+                logger.info(f"Not trusting {device_id} as it's not in {user_id}'s pre-approved list.")
+                continue
+
+            if user_id == self.client.user_id and device_id == self.client.device_id:
+                continue
+
+            self.client.verify_device(olm_device)
+            logger.info(f"Trusting {device_id} from user {user_id}")
+
     async def run(self) -> None:
         if not self.logged_in:
             logger.error(f"Cannot run, not logged in")
@@ -156,4 +173,18 @@ class MatrixControl(control.Control):
         self.client.add_response_callback(self._sync_callback, SyncResponse) # type: ignore
         self.client.add_event_callback(self._message_callback, RoomMessageText)
         self.client.add_event_callback(self._invite_callback, InviteEvent) # type: ignore
-        await self.client.sync_forever(timeout=30000, since=self.sync_token, full_state=True)
+        async def after_first_sync():
+            await self.client.synced.wait()
+            for mxid in self.config.config["matrix"]["trust_mxids"].split(","):
+                # TODO: implement proper verification, trusting just mxids in particular is not safe
+                self.trust_devices(mxid)
+        # https://matrix-nio.readthedocs.io/en/latest/examples.html?highlight=invite#manual-encryption-key-verification
+        after_first_sync_task = asyncio.ensure_future(after_first_sync())
+        sync_forever_task = asyncio.ensure_future(self.client.sync_forever(timeout=30000, since=self.sync_token, full_state=True))
+        logger.info(f"Sync starts")
+        await asyncio.gather(
+            # The order here IS significant! You have to register the task to trust
+            # devices FIRST since it awaits the first sync
+            after_first_sync_task,
+            sync_forever_task
+        )
