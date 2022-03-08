@@ -1,5 +1,6 @@
 import re
-
+import os
+import errno
 from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from configparser import ConfigParser
@@ -43,9 +44,18 @@ class MatrixControl(control.Control):
         super().__init__()
         self.config = env.config
         self.state = env.state
+
+        store_path = self.config.config["matrix"]["store_path"]
+        try:
+            os.makedirs(store_path)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
         self.state.add_element(StateSave(self))
         self.client = AsyncClient(self.config.config["matrix"]["homeserver"],
-                                  self.config.config["matrix"]["mxid"])
+                                  self.config.config["matrix"]["mxid"],
+                                  store_path=store_path)
         self.logged_in = False
         self.sync_token = None
         if "sync_token" in self.state.state["matrix"] is not None and \
@@ -65,9 +75,9 @@ class MatrixControl(control.Control):
         if mx_state is not None and "access_token" in mx_state and mx_state["access_token"] != "":
             self.logged_in = True
             logger.debug(f"Using pre-existing credentials")
-            self.client.user_id      = mx_config["mxid"]
-            self.client.device_id    = mx_state["device_id"]
-            self.client.access_token = mx_state["access_token"]
+            self.client.restore_login(user_id=mx_config["mxid"],
+                                      device_id=mx_state["device_id"],
+                                      access_token=mx_state["access_token"])
         else:
             logger.debug(f"Logging in")
             login = await self.client.login(mx_config["password"])

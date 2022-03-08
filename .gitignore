@@ -3,5 +3,6 @@ __pycache__
 venv
 config.ini
 state.ini
+matrix_store
 .emacs.desktop
 .emacs.desktop.lock
