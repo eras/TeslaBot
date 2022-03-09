@@ -17,7 +17,7 @@ async def async_main() -> None:
     config_ = config.Config(filename=args.config)
     state_ = state.State(filename=config_.config["common"]["state_file"])
     control = matrix.MatrixControl(Env(config=config_, state=state_))
-    app = tesla.App(control=control)
+    app = tesla.App(config=config_, control=control)
     await control.setup()
     asyncio.create_task(control.run())
     asyncio.create_task(app.run())
