@@ -17,7 +17,6 @@ from .env import Env
 from . import commands
 
 logger = log.getLogger(__name__)
-logger.setLevel(log.DEBUG)
 
 class StateSave(StateElement):
     control: "MatrixControl"

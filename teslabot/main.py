@@ -20,6 +20,7 @@ async def async_main() -> None:
     log.setup_logging()
     logger.setLevel(log.INFO)
     logger.info("Starting")
+    matrix.logger.setLevel(log.INFO)
     args = config.get_args()
     config_ = config.Config(filename=args.config)
     state_ = state.State(filename=config_.config["common"]["state_file"])
