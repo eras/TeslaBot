@@ -6,3 +6,4 @@ state.ini
 matrix_store
 .emacs.desktop
 .emacs.desktop.lock
+cache.json
