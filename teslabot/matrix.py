@@ -6,7 +6,7 @@ from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from nio.exceptions import OlmUnverifiedDeviceError
 from configparser import ConfigParser
-from typing import Optional, List
+from typing import Optional, List, Callable, Coroutine, Any
 
 from . import control
 from .utils import get_optional
@@ -43,11 +43,16 @@ class MatrixControl(control.Control):
     _logged_in: bool
     _sync_token: Optional[str]
     _local_commands: commands.Commands[None]
+    _init_done: asyncio.Event
+
+    _pending_event_handlers: List[Callable[[], Coroutine[Any, Any, None]]]
+    """Handlers created for received messages during initial sync that we cannot quite handle yet are pushed here."""
 
     def __init__(self, env: Env) -> None:
         super().__init__()
         self._config = env.config
         self._state = env.state
+        self._init_done = asyncio.Event()
 
         store_path = self._config.config["matrix"]["store_path"]
         try:
@@ -55,6 +60,8 @@ class MatrixControl(control.Control):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
+
+        self._pending_event_handlers = []
 
         self._local_commands = commands.Commands()
         self._local_commands.register(commands.Function[None]("ping", self._command_ping))
@@ -102,6 +109,9 @@ class MatrixControl(control.Control):
         if self._room_id is None:
             logger.error(f"No room id known, cannot send \"{message}\"")
         else:
+            logger.debug(f"send_message wait ready start")
+            await self.wait_ready()
+            logger.debug(f"send_message wait ready done")
             logger.info(f"> {message}")
             try:
                 await self._client.room_send(
@@ -130,16 +140,19 @@ class MatrixControl(control.Control):
             logger.debug(f"invite callback to {room} event {event}: not joining, we are already in {self._room_id}")
 
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
-        assert isinstance(event, RoomMessageText)
-        if room.room_id == self._room_id and re.match(r"^!", event.body):
-            try:
-                invocation = commands.Invocation.parse(event.body[1:])
-                if self._local_commands.has_command(invocation.name):
-                    await self._local_commands.invoke(None, invocation)
-                else:
-                    await self.callback.command_callback(invocation)
-            except commands.InvocationParseError:
-                logger.error(f"Failed to parse command: {event.body[1:]}")
+        if self._init_done.is_set():
+            assert isinstance(event, RoomMessageText)
+            if room.room_id == self._room_id and re.match(r"^!", event.body):
+                try:
+                    invocation = commands.Invocation.parse(event.body[1:])
+                    if self._local_commands.has_command(invocation.name):
+                        await self._local_commands.invoke(None, invocation)
+                    else:
+                        await self.callback.command_callback(invocation)
+                except commands.InvocationParseError:
+                    logger.error(f"Failed to parse command: {event.body[1:]}")
+        else:
+            self._pending_event_handlers.append(lambda: self._message_callback(room, event))
         # print(
         #     f"Message received in room {room.display_name}\n"
         #     f"{room.user_name(event.sender)} | {event.body}"
@@ -166,6 +179,9 @@ class MatrixControl(control.Control):
             self._client.verify_device(olm_device)
             logger.info(f"Trusting {device_id} from user {user_id}")
 
+    async def wait_ready(self) -> None:
+        await self._init_done.wait()
+
     async def run(self) -> None:
         if not self._logged_in:
             logger.error(f"Cannot run, not logged in")
@@ -174,10 +190,16 @@ class MatrixControl(control.Control):
         self._client.add_event_callback(self._message_callback, RoomMessageText)
         self._client.add_event_callback(self._invite_callback, InviteEvent) # type: ignore
         async def after_first_sync():
+            logger.debug(f"after_first_sync synced wait")
             await self._client.synced.wait()
+            logger.debug(f"after_first_sync synced wait done")
             for mxid in self._config.config["matrix"]["trust_mxids"].split(","):
                 # TODO: implement proper verification, trusting just mxids in particular is not safe
                 self.trust_devices(mxid)
+            self._init_done.set()
+            for pending in self._pending_event_handlers:
+                await pending()
+            self._pending_event_handlers = []
         # https://matrix-nio.readthedocs.io/en/latest/examples.html?highlight=invite#manual-encryption-key-verification
         after_first_sync_task = asyncio.ensure_future(after_first_sync())
         sync_forever_task = asyncio.ensure_future(self._client.sync_forever(timeout=30000, since=self._sync_token, full_state=True))
