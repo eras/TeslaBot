@@ -9,7 +9,7 @@ from . import tesla
 
 logger = log.getLogger(__name__)
 
-async def dump_all_tasks():
+async def dump_all_tasks() -> None:
     while True:
         for x in asyncio.all_tasks():
             print(x)

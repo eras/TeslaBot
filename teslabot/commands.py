@@ -32,7 +32,7 @@ class Command(ABC, Generic[Context]):
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         pass
 
-class Function(Command, Generic[Context]):
+class Function(Command[Context]):
     fn: List[Callable[[Context, List[str]], Coroutine[Any, Any, None]]]
 
     def __init__(self, name: str, fn: Callable[[Context, List[str]], Coroutine[Any, Any, None]]) -> None:
@@ -43,12 +43,12 @@ class Function(Command, Generic[Context]):
         await self.fn[0](context, invocation.args)
 
 class Commands(Generic[Context]):
-    _commands: List[Command]
+    _commands: List[Command[Context]]
 
     def __init__(self) -> None:
         self._commands = []
 
-    def register(self, command: Command) -> None:
+    def register(self, command: Command[Context]) -> None:
         self._commands.append(command)
 
     def has_command(self, name: str) -> bool:

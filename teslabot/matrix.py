@@ -188,7 +188,7 @@ class MatrixControl(control.Control):
         self._client.add_response_callback(self._sync_callback, SyncResponse) # type: ignore
         self._client.add_event_callback(self._message_callback, RoomMessageText)
         self._client.add_event_callback(self._invite_callback, InviteEvent) # type: ignore
-        async def after_first_sync():
+        async def after_first_sync() -> None:
             logger.debug(f"after_first_sync synced wait")
             await self._client.synced.wait()
             logger.debug(f"after_first_sync synced wait done")
