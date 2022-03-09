@@ -159,7 +159,6 @@ class MatrixControl(control.Control):
         # )
 
     async def _sync_callback(self, response: SyncResponse) -> None:
-        logger.debug(f"sync callback: {type(response)} {response}")
         self._sync_token = response.next_batch
         self._state.save()
 
