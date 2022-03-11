@@ -9,6 +9,7 @@ from configparser import ConfigParser
 from typing import Optional, List, Callable, Coroutine, Any
 
 from . import control
+from .control import CommandContext
 from .utils import get_optional
 from .config import Config
 from .state import State, StateElement
@@ -29,6 +30,7 @@ class StateSave(StateElement):
             if not "matrix" in state:
                 state["matrix"] = {}
             st = state["matrix"]
+            st["admin_room_id"]= get_optional(self.control._admin_room_id, "")
             st["room_id"]      = get_optional(self.control._room_id, "")
             st["sync_token"]   = get_optional(self.control._sync_token, "")
             st["device_id"]    = get_optional(self.control._client.device_id, "")
@@ -36,12 +38,13 @@ class StateSave(StateElement):
 
 class MatrixControl(control.Control):
     _client: AsyncClient
+    _admin_room_id: Optional[str]
     _room_id: Optional[str]
     _config: Config
     _state: State
     _logged_in: bool
     _sync_token: Optional[str]
-    _local_commands: commands.Commands[None]
+    _local_commands: commands.Commands[CommandContext]
     _init_done: asyncio.Event
 
     _pending_event_handlers: List[Callable[[], Coroutine[Any, Any, None]]]
@@ -63,7 +66,7 @@ class MatrixControl(control.Control):
         self._pending_event_handlers = []
 
         self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function[None]("ping", self._command_ping))
+        self._local_commands.register(commands.Function[CommandContext]("ping", self._command_ping))
 
         self._state.add_element(StateSave(self))
         self._client = AsyncClient(self._config.config["matrix"]["homeserver"],
@@ -78,6 +81,10 @@ class MatrixControl(control.Control):
         if room_id == "":
             room_id = None
         self._room_id = room_id
+        admin_room_id = self._state.state["matrix"]["admin_room_id"] if "admin_room_id" in self._state.state["matrix"] else None
+        if admin_room_id == "":
+            admin_room_id = None
+        self._admin_room_id = admin_room_id
 
     async def setup(self) -> None:
         mx_config = self._config.config["matrix"] if "matrix" in "matrix" in self._config.config else None
@@ -101,11 +108,14 @@ class MatrixControl(control.Control):
                 logger.info(f"Login successful")
                 self._state.save()
 
-    async def _command_ping(self, context: None, args: List[str]) -> None:
-        await self.send_message("pong")
+    async def _command_ping(self, context: CommandContext, args: List[str]) -> None:
+        await self.send_message(context.to_message_context(), "pong")
 
-    async def send_message(self, message: str) -> None:
-        if self._room_id is None:
+    async def send_message(self,
+                           message_context: control.MessageContext,
+                           message: str) -> None:
+        room_id = self._admin_room_id if message_context.admin_room else self._room_id
+        if room_id is None:
             logger.error(f"No room id known, cannot send \"{message}\"")
         else:
             logger.debug(f"send_message wait ready start")
@@ -114,7 +124,7 @@ class MatrixControl(control.Control):
             logger.info(f"> {message}")
             try:
                 await self._client.room_send(
-                    room_id=self._room_id,
+                    room_id=room_id,
                     message_type="m.room.message",
                     content = {
                         "msgtype": "m.notice", # or m.text
@@ -129,25 +139,36 @@ class MatrixControl(control.Control):
 
     async def _invite_callback(self, room: MatrixRoom, event: Event) -> None:
         assert isinstance(event, InviteEvent)
-        if self._room_id is None:
-            logger.debug(f"invite callback to {room} event {event}: joining")
+        if self._admin_room_id is None:
+            logger.debug(f"invite callback to {room} event {event}: joining to admin room")
+            await self._client.join(room.room_id)
+            self._admin_room_id = room.room_id
+            self._state.save()
+            logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
+            await self.send_message(control.MessageContext(admin_room=True), "This is the admin room.")
+        elif self._room_id is None:
+            logger.debug(f"invite callback to {room} event {event}: joining to control room")
             await self._client.join(room.room_id)
             self._room_id = room.room_id
             self._state.save()
-            print(f"Room {room.name} is encrypted: {room.encrypted}" )
+            logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
+            await self.send_message(control.MessageContext(admin_room=True), "This is the control room.")
         else:
             logger.debug(f"invite callback to {room} event {event}: not joining, we are already in {self._room_id}")
 
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
         if self._init_done.is_set():
             assert isinstance(event, RoomMessageText)
-            if room.room_id == self._room_id and re.match(r"^!", event.body):
+            if [self._admin_room_id, self._room_id].count(room.room_id) \
+               and re.match(r"^!", event.body):
+                admin_room = room.room_id == self._admin_room_id
                 try:
                     invocation = commands.Invocation.parse(event.body[1:])
+                    command_context = CommandContext(admin_room=admin_room)
                     if self._local_commands.has_command(invocation.name):
-                        await self._local_commands.invoke(None, invocation)
+                        await self._local_commands.invoke(command_context, invocation)
                     else:
-                        await self.callback.command_callback(invocation)
+                        await self.callback.command_callback(command_context, invocation)
                 except commands.InvocationParseError:
                     logger.error(f"Failed to parse command: {event.body[1:]}")
         else:

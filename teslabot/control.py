@@ -1,14 +1,29 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from .commands import Invocation
+
+@dataclass
+class CommandContext:
+    admin_room: bool
+    def to_message_context(self) -> "MessageContext":
+        return MessageContext(admin_room=self.admin_room)
+
+@dataclass
+class MessageContext:
+    admin_room: bool
 
 class ControlCallback(ABC):
     @abstractmethod
-    async def command_callback(self, invocation: Invocation) -> None:
+    async def command_callback(self,
+                               command_context: CommandContext,
+                               invocation: Invocation) -> None:
         """Called when a bot command is received"""
 
 class DefaultControlCallback(ControlCallback):
-    async def command_callback(self, invocation: Invocation) -> None:
-        print(f"command_callback({invocation.name} {invocation.args})")
+    async def command_callback(self,
+                               command_context: CommandContext,
+                               invocation: Invocation) -> None:
+        print(f"command_callback({command_context}, {invocation.name} {invocation.args})")
 
 class Control(ABC):
     callback: ControlCallback
@@ -22,6 +37,8 @@ class Control(ABC):
         pass
 
     @abstractmethod
-    async def send_message(self, message: str) -> None:
-        """Sends a message to the control channel"""
+    async def send_message(self,
+                           message_context: MessageContext,
+                           message: str) -> None:
+        """Sends a message to the admin or the control channel"""
         pass
