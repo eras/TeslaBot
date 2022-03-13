@@ -1,5 +1,6 @@
 import asyncio
 from typing import List, Optional
+import re
 
 import teslapy
 from urllib.error import HTTPError
@@ -9,6 +10,7 @@ from .commands import Invocation
 from . import log
 from .config import Config
 from . import commands
+from .utils import assert_some
 
 logger = log.getLogger(__name__)
 logger.setLevel(log.DEBUG)
@@ -36,6 +38,7 @@ class App(ControlCallback):
         self._commands.register(commands.Function("authorize", self._command_authorized))
         self._commands.register(commands.Function("vehicles", self._command_vehicles))
         self._commands.register(commands.Function("climate", self._command_climate))
+        self._commands.register(commands.Function("info", self._command_info))
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -43,7 +46,16 @@ class App(ControlCallback):
         """ControlCallback"""
         logger.debug(f"command_callback({invocation.name} {invocation.args})")
         if self._commands.has_command(invocation.name):
-            await self._commands.invoke(command_context, invocation)
+            try:
+                await self._commands.invoke(command_context, invocation)
+            except AppException as exn:
+                logger.error(str(exn))
+                await self.control.send_message(command_context.to_message_context(),
+                                                exn.args[0])
+            except Exception as exn:
+                logger.error(str(exn))
+                await self.control.send_message(command_context.to_message_context(),
+                                                f"Exception: {exn}")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
 
@@ -83,6 +95,40 @@ class App(ControlCallback):
             vehicle.sync_wake_up()
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
+
+    async def _command_info(self, context: CommandContext, args: List[str]) -> None:
+        vehicle = await self._get_vehicle(args[0] if len(args) >= 1 else None)
+        await self._wake(context, vehicle)
+        try:
+            data = vehicle.get_vehicle_data()
+            logger.debug(f"data: {data}")
+            dist_hr_unit        = data["gui_settings"]["gui_distance_units"]
+            dist_unit           = assert_some(re.match(r"^[^/]*", dist_hr_unit), "Expected to find / from dist_hr_unit")[0]
+            temp_unit           = data["gui_settings"]["gui_temperature_units"]
+            gps_as_of           = data["drive_state"]["gps_as_of"]
+            heading             = data["drive_state"]["heading"]
+            lat                 = data["drive_state"]["latitude"]
+            lon                 = data["drive_state"]["longitude"]
+            speed               = data["drive_state"]["speed"]
+            battery_level       = data["charge_state"]["battery_level"]
+            est_battery_range   = data["charge_state"]["est_battery_range"]
+            charge_limit        = data["charge_state"]["charge_limit_soc"]
+            charge_rate         = data["charge_state"]["charge_rate"]
+            time_to_full_charge = data["charge_state"]["time_to_full_charge"]
+            odometer            = int(data["vehicle_state"]["odometer"])
+            inside_temp         = data["climate_state"]["inside_temp"]
+            outside_temp        = data["climate_state"]["outside_temp"]
+            message = ""
+            message += f"Heading: {heading} Lat: {lat} Lon: {lon} Speed: {speed}\n"
+            message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
+            message += f"Battery: {battery_level}% est. {est_battery_range} {dist_unit}\n"
+            message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to full: {time_to_full_charge}h\n"
+            message += f"Odometer: {odometer}"
+            await self.control.send_message(context.to_message_context(),
+                                            message)
+        except HTTPError as exn:
+            await self.control.send_message(context.to_message_context(), str(exn))
+
 
     async def _command_climate(self, context: CommandContext, args: List[str]) -> None:
         if len(args) != 1 and len(args) != 2:
