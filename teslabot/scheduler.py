@@ -30,6 +30,8 @@ or None if no such activation is in this schedule"""
         return None
 
 class Daily(Entry):
+    time: datetime.time
+
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
                  time: datetime.time) -> None:
@@ -41,16 +43,31 @@ class Daily(Entry):
 
 or None if no such activation is in this schedule"""
 
-        dt = datetime.datetime.fromtimestamp(now, self.time.tzinfo)
-        if dt.timetz() < self.time:
-            dt = datetime.datetime.combine(dt.date(), self.time)
-        elif dt.timetz() > self.time:
-            dt = datetime.datetime.combine(dt.date() + datetime.timedelta(days=1), self.time)
-        assert dt.timetz() >= self.time
-        return dt.timestamp()
+        now_dt = datetime.datetime.fromtimestamp(now, self.time.tzinfo)
+        if now_dt.timetz() < self.time:
+            now_dt = datetime.datetime.combine(now_dt.date(), self.time)
+        elif now_dt.timetz() > self.time:
+            now_dt = datetime.datetime.combine(now_dt.date() + datetime.timedelta(days=1), self.time)
+        assert now_dt.timetz() >= self.time
+        return now_dt.timestamp()
 
     def __str__(self) -> str:
         return f"Daily at {self.time}" 
+
+class OneShot(Entry):
+    time: datetime.datetime
+
+    def __init__(self,
+                 callback: Callable[[], Awaitable[None]],
+                 time: datetime.datetime) -> None:
+        super().__init__(callback)
+        self.time = time
+
+    def when_is_next(self, now: float) -> Optional[float]:
+        if self.time.timestamp() > now:
+            return self.time.timestamp()
+        else:
+            return None
 
 class AsyncSleepProtocol(Protocol):
     def __call__(self, delta: float) -> Coroutine[Any, Any, None]:
