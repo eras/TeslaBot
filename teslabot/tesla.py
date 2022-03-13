@@ -72,28 +72,23 @@ class App(ControlCallback):
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
 
-    async def _command_authorized(self, context: CommandContext, authorization_response: str, args: List[str]) -> None:
+    async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
         if not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
-        elif len(args) != 1:
-            await self.control.send_message(context.to_message_context(), "usage: !authorize https://the/url/you/ended/up/at")
         else:
             await self.control.send_message(context.to_message_context(), "Authorization successful")
             self.tesla.fetch_token(authorization_response=authorization_response)
             vehicles = self.tesla.vehicle_list()
             await self.control.send_message(context.to_message_context(), str(vehicles[0]))
 
-    async def _command_vehicles(self, context: CommandContext, valid: Tuple[()], args: List[str]) -> None:
-        if len(args) != 0:
-            await self.control.send_message(context.to_message_context(), "usage: !vehicles")
-        else:
-            vehicles = self.tesla.vehicle_list()
-            await self.control.send_message(context.to_message_context(), f"vehicles: {vehicles}")
+    async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
+        vehicles = self.tesla.vehicle_list()
+        await self.control.send_message(context.to_message_context(), f"vehicles: {vehicles}")
 
     async def _get_vehicle(self, display_name: Optional[str]) -> teslapy.Vehicle:
         vehicles = self.tesla.vehicle_list()
         if display_name is not None:
-            vehicles = [vehicle for vehicle in vehicles if vehicle["display_name"] == display_name]
+            vehicles = [vehicle for vehicle in vehicles if vehicle["display_name"].lower() == display_name.lower()]
         if len(vehicles) > 1:
             raise ArgException("Matched more than one vehicle; aborting")
         elif len(vehicles) == 0:
@@ -109,7 +104,7 @@ class App(ControlCallback):
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
-    async def _command_info(self, context: CommandContext, vehicle_name: Optional[str], args: List[str]) -> None:
+    async def _command_info(self, context: CommandContext, vehicle_name: Optional[str]) -> None:
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         try:
@@ -143,38 +138,35 @@ class App(ControlCallback):
             await self.control.send_message(context.to_message_context(), str(exn))
 
 
-    async def _command_climate(self, context: CommandContext, valid: Tuple[bool, Optional[str]], args: List[str]) -> None:
-        if len(args) != 1 and len(args) != 2:
-            await self.control.send_message(context.to_message_context(), "usage: !climate on|off [Cherry]")
+    async def _command_climate(self, context: CommandContext, args: Tuple[bool, Optional[str]]) -> None:
+        mode, vehicle_name = args
+        vehicle = await self._get_vehicle(vehicle_name)
+        await self._wake(context, vehicle)
+        num_retries = 0
+        error = None
+        result = None
+        await self.control.send_message(context.to_message_context(), f"Sending command")
+        while num_retries < 5:
+            try:
+                command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
+                logger.debug(f"Sending {command}")
+                result = vehicle.command(command)
+                break
+            except teslapy.VehicleError as exn:
+                logger.debug(f"Vehicle error: {exn}")
+                error = exn
+            except HTTPError as exn:
+                logger.debug(f"HTTP error: {exn}")
+                error = exn
+            finally:
+                logger.debug(f"Done sending")
+            await asyncio.sleep(pow(1.15, num_retries) * 2)
+            num_retries += 1
+        if error:
+            await self.control.send_message(context.to_message_context(), f"Error: {error}")
         else:
-            mode = args[0] == "on"
-            vehicle = await self._get_vehicle(args[1] if len(args) >= 2 else None)
-            await self._wake(context, vehicle)
-            num_retries = 0
-            error = None
-            result = None
-            await self.control.send_message(context.to_message_context(), f"Sending command")
-            while num_retries < 5:
-                try:
-                    command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
-                    logger.debug(f"Sending {command}")
-                    result = vehicle.command(command)
-                    break
-                except teslapy.VehicleError as exn:
-                    logger.debug(f"Vehicle error: {exn}")
-                    error = exn
-                except HTTPError as exn:
-                    logger.debug(f"HTTP error: {exn}")
-                    error = exn
-                finally:
-                    logger.debug(f"Done sending")
-                await asyncio.sleep(pow(1.15, num_retries) * 2)
-                num_retries += 1
-            if error:
-                await self.control.send_message(context.to_message_context(), f"Error: {error}")
-            else:
-                assert result
-                await self.control.send_message(context.to_message_context(), f"Success: {result}")
+            assert result
+            await self.control.send_message(context.to_message_context(), f"Success: {result}")
 
     async def run(self) -> None:
         await self.control.send_message(MessageContext(admin_room=False), "TeslaBot started")

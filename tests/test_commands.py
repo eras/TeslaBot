@@ -13,9 +13,9 @@ class TestCommands(unittest.TestCase):
 
     def setup_commands(self, called: List[Optional[Result]], valid: c.Validator[Result]) -> c.Commands[None]:
         cmds = c.Commands[None]()
-        async def command0(context: None, valid: Result, args: List[str]) -> None:
+        async def command0(context: None, valid: Result) -> None:
             called[0] = valid
-        async def command1(context: None, valid: Result, args: List[str]) -> None:
+        async def command1(context: None, valid: Result) -> None:
             called[1] = valid
         cmds.register(c.Function("test0", valid, command0))
         cmds.register(c.Function("test1", valid, command1))

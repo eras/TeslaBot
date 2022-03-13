@@ -371,11 +371,11 @@ class Command(ABC, Generic[Context]):
 
 class Function(Command[Context], Generic[Context, Validated]):
     validator: Validator[Validated]
-    fn: List[Callable[[Context, Validated, List[str]], Coroutine[Any, Any, None]]]
+    fn: List[Callable[[Context, Validated], Coroutine[Any, Any, None]]]
 
     def __init__(self, name: str,
                  validator: Validator[Validated],
-                 fn: Callable[[Context, Validated, List[str]], Coroutine[Any, Any, None]]) -> None:
+                 fn: Callable[[Context, Validated], Coroutine[Any, Any, None]]) -> None:
         super().__init__(name)
         self.validator = validator
         self.fn = [fn]
@@ -383,7 +383,7 @@ class Function(Command[Context], Generic[Context, Validated]):
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         validated = self.validator(invocation.args)
         assert isinstance(validated, ValidatorOK), f"Expected invocation {invocation} to be validated: {validated}"
-        await self.fn[0](context, validated.value, invocation.args)
+        await self.fn[0](context, validated.value)
 
     def validate(self, context: Context, invocation: Invocation) -> bool:
         return self.validator(invocation.args) is not None

@@ -162,7 +162,7 @@ class SlackControl(control.Control):
             logger.error(f"exception: {exn}")
             raise exn
 
-    async def _command_ping(self, context: CommandContext, valid: Tuple[()], args: List[str]) -> None:
+    async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
     async def send_message(self,
