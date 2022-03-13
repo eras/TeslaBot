@@ -44,12 +44,9 @@ class SlackControl(control.Control):
     # _ws: websocket.WebSocketApp
     _config: Config
     _state: State
-    _client_id: str
-    _client_secret: str
     _channel_name: str
     _channel_id: Optional[str]
     _local_commands: commands.Commands[CommandContext]
-    _signing_secret: str
     _api_token: str
     _app_token: str
     _ws_task: Any               # async_io.Task[Any] won't work with Python..
@@ -59,20 +56,14 @@ class SlackControl(control.Control):
         super().__init__()
         self._config = env.config
         self._state = env.state
-        signing_secret = os.environ.get("SLACK_SIGNING_SECRET")
-        if signing_secret is None:
-            signing_secret = self._config.config["slack"]["signing_secret"]
         api_token = os.environ.get("SLACK_API_TOKEN")
         if api_token is None:
             api_token = self._config.config["slack"]["api_token"]
         app_token = os.environ.get("SLACK_APP_TOKEN")
         if app_token is None:
             app_token = self._config.config["slack"]["app_token"]
-        self._signing_secret = signing_secret
         self._api_token = api_token
         self._app_token = app_token
-        self._client_id = self._config.config["slack"]["client_id"]
-        self._client_secret = self._config.config["slack"]["client_secret"]
         channel_name = self._config.config.get("slack", "channel", fallback=None)
         if channel_name is None or channel_name == "":
             raise control.ConfigError("Missing slack.channel configuration")
