@@ -150,6 +150,7 @@ class App(ControlCallback):
             lon                 = data["drive_state"]["longitude"]
             speed               = data["drive_state"]["speed"]
             battery_level       = data["charge_state"]["battery_level"]
+            battery_range       = data["charge_state"]["battery_range"]
             est_battery_range   = data["charge_state"]["est_battery_range"]
             charge_limit        = data["charge_state"]["charge_limit_soc"]
             charge_rate         = data["charge_state"]["charge_rate"]
@@ -160,9 +161,9 @@ class App(ControlCallback):
             message = ""
             message += f"Heading: {heading} Lat: {lat} Lon: {lon} Speed: {speed}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
-            message += f"Battery: {battery_level}% est. {est_battery_range} {dist_unit}\n"
+            message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to full: {time_to_full_charge}h\n"
-            message += f"Odometer: {odometer}"
+            message += f"Odometer: {odometer} {dist_unit}"
             await self.control.send_message(context.to_message_context(),
                                             message)
         except HTTPError as exn:
