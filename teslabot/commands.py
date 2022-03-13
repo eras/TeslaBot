@@ -346,9 +346,9 @@ class VldHourMinute(Validator[Tuple[int, int]]):
         else:
             assert isinstance(result, ValidatorOK)
             hh, mm = (int(result.value[0]), int(result.value[1]))
-            if hh >= 23:
+            if hh > 23:
                 return ValidatorFail("Hour cannot be >23")
-            elif mm >= 59:
+            elif mm > 59:
                 return ValidatorFail("Minute cannot be >59")
             else:
                 return ValidatorOK((hh, mm), processed=result.processed)
