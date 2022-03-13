@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Optional, Tuple
 import re
+import datetime
 
 import teslapy
 from urllib.error import HTTPError
@@ -11,6 +12,7 @@ from . import log
 from .config import Config
 from . import commands
 from .utils import assert_some
+from . import scheduler
 
 logger = log.getLogger(__name__)
 logger.setLevel(log.DEBUG)
@@ -41,17 +43,23 @@ class App(ControlCallback):
     config: Config
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
+    _scheduler: scheduler.Scheduler
 
     def __init__(self, control: Control, config: Config) -> None:
         self.control = control
         self.config = config
         control.callback = self
+        self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
         self._commands = commands.Commands()
+        valid_climate = commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(self.tesla)))
         self._commands.register(commands.Function("authorize", commands.VldAnyStr(), self._command_authorized))
         self._commands.register(commands.Function("vehicles", commands.VldEmpty(), self._command_vehicles))
-        self._commands.register(commands.Function("climate", commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(self.tesla))), self._command_climate))
+        self._commands.register(commands.Function("climate", valid_climate, self._command_climate))
         self._commands.register(commands.Function("info", commands.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
+        self._commands.register(commands.Function("at", commands.VldAdjacent(commands.VldHourMinute(),
+                                                                             commands.VldAdjacent(commands.VldFixedStr("climate"),
+                                                                                                  valid_climate)), self._command_at))
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -103,6 +111,29 @@ class App(ControlCallback):
             vehicle.sync_wake_up()
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
+
+    async def _command_at(self, context: CommandContext,
+                          args: Tuple[Tuple[int, int],
+                                      Tuple[str, Tuple[bool, Optional[str]]]]) -> None:
+        hhmm, command = args
+        climate, climate_args = command
+
+        async def callback() -> None:
+            logger.info("Timer activated")
+            logger.debug(f"now={datetime.datetime.now()}, requested={time}")
+            await self._scheduler.remove(entry)
+            await self.control.send_message(MessageContext(admin_room=False),
+                                            f"Timer activated")
+            await self._command_climate(context, climate_args)
+        time_of_day = datetime.time(hhmm[0], hhmm[1])
+        date = datetime.date.today()
+        time = datetime.datetime.combine(date, time_of_day)
+        while time < datetime.datetime.now():
+            time += datetime.timedelta(days=1)
+        entry = scheduler.OneShot(callback, time)
+        await self._scheduler.add(entry)
+        await self.control.send_message(MessageContext(admin_room=False),
+                                        f"Scheduled at {time}")
 
     async def _command_info(self, context: CommandContext, vehicle_name: Optional[str]) -> None:
         vehicle = await self._get_vehicle(vehicle_name)
@@ -169,6 +200,7 @@ class App(ControlCallback):
             await self.control.send_message(context.to_message_context(), f"Success: {result}")
 
     async def run(self) -> None:
+        await self._scheduler.start()
         await self.control.send_message(MessageContext(admin_room=False), "TeslaBot started")
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
