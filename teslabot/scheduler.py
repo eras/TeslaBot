@@ -165,7 +165,11 @@ class Scheduler:
         except:
             traceback.print_exc()
             raise
-                
+
+    async def get_entries(self) -> List[Entry]:
+        async with self._entries_cond:
+            return self._entries[:]
+
     async def add(self, entry: Entry) -> None:
         async def adder(entries: List[Entry]) -> List[Entry]:
             logger.info(f"Adding entry {entry}")
