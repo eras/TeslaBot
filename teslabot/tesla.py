@@ -51,15 +51,16 @@ class App(ControlCallback):
         control.callback = self
         self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
-        self._commands = commands.Commands()
-        valid_climate = commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(self.tesla)))
-        self._commands.register(commands.Function("authorize", commands.VldAnyStr(), self._command_authorized))
-        self._commands.register(commands.Function("vehicles", commands.VldEmpty(), self._command_vehicles))
-        self._commands.register(commands.Function("climate", valid_climate, self._command_climate))
-        self._commands.register(commands.Function("info", commands.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
-        self._commands.register(commands.Function("at", commands.VldAdjacent(commands.VldHourMinute(),
-                                                                             commands.VldAdjacent(commands.VldFixedStr("climate"),
-                                                                                                  valid_climate)), self._command_at))
+        c = commands
+        self._commands = c.Commands()
+        valid_climate = c.VldAdjacent(c.VldBool(), c.VldValidOrMissing(ValidVehicle(self.tesla)))
+        self._commands.register(c.Function("authorize", c.VldAnyStr(), self._command_authorized))
+        self._commands.register(c.Function("vehicles", c.VldEmpty(), self._command_vehicles))
+        self._commands.register(c.Function("climate", valid_climate, self._command_climate))
+        self._commands.register(c.Function("info", c.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
+        self._commands.register(c.Function("at", c.VldAdjacent(c.VldHourMinute(),
+                                                               c.VldAdjacent(c.VldFixedStr("climate"),
+                                                                             valid_climate)), self._command_at))
 
     async def command_callback(self,
                                command_context: CommandContext,
