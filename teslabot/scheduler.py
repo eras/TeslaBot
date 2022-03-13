@@ -7,13 +7,20 @@ import aiounittest
 import unittest
 import traceback
 import logging
-from typing import List, Optional, Awaitable, Callable, Tuple
+from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any
+from typing_extensions import Protocol
 
 logger = logging.getLogger(__name__)
 
+class CallbackProtocol(Protocol):
+    def __call__(self) -> Awaitable[None]:
+        ...
+
 class Entry:
+    callback: CallbackProtocol
+
     def __init__(self,
-                 callback: Callable[[], Awaitable[None]]):
+                 callback: Callable[[], Awaitable[None]]) -> None:
         self.callback = callback
 
     def when_is_next(self, now: float) -> Optional[float]:
@@ -25,7 +32,7 @@ or None if no such activation is in this schedule"""
 class Daily(Entry):
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
-                 time: datetime.time):
+                 time: datetime.time) -> None:
         super().__init__(callback)
         self.time = time
 
@@ -42,26 +49,35 @@ or None if no such activation is in this schedule"""
         assert dt.timetz() >= self.time
         return dt.timestamp()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Daily at {self.time}" 
 
+class AsyncSleepProtocol(Protocol):
+    def __call__(self, delta: float) -> Coroutine[Any, Any, None]:
+        ...
+
+async def default_sleep(delta: float) -> None:
+    await asyncio.sleep(delta)
+
 class Scheduler:
-    def __init__(self):
+    sleep: AsyncSleepProtocol
+
+    def __init__(self) -> None:
         self._entries = [] # type: List[Entry]
         self._entries_cond = asyncio.Condition()
-        self._task = None # type: Optional[asyncio.Task]
-        async def get_time():
+        self._task: Optional[asyncio.Task[None]] = None
+        async def get_time() -> float:
             return time.time()
         self.now = get_time # allows overriding time retrieval functino for test purposes
-        self.sleep = asyncio.sleep # allows overriding the sleeping function for test purposes
+        self.sleep = default_sleep # allows overriding the sleeping function for test purposes
 
-    async def start(self):
+    async def start(self) -> None:
         logger.info(f"Starting")
         assert not self._task
         loop = asyncio.get_event_loop()
         self._task = loop.create_task(self._scheduler())
 
-    async def stop(self):
+    async def stop(self) -> None:
         logger.info(f"Stopping")
         assert self._task
         self._task.cancel()
@@ -69,7 +85,7 @@ class Scheduler:
         logger.info(f"Stopped")
         
     def get_earliest(self, now: float, blacklist: Tuple[float, List[Entry]] = (0.0, [])) -> Optional[Tuple[float, Entry]]:
-        earliest = None
+        earliest: Optional[Tuple[float, Entry]] = None
         for entry in self._entries:
             when = entry.when_is_next(now)
             if when is not None \
@@ -78,15 +94,15 @@ class Scheduler:
                 earliest = (when, entry)
         return earliest
             
-    async def _scheduler(self):
+    async def _scheduler(self) -> None:
         try:
-            previously_activated = []
-            previously_activate_time = 0.0 # type: float
+            previously_activated: List[Entry] = []
+            previously_activate_time = 0.0
             while True:
-                earliest = [None]
+                earliest: List[Optional[Tuple[float, Entry]]] = [None]
                 now = await self.now()
                 async with self._entries_cond:
-                    def grab_earliest():
+                    def grab_earliest() -> bool:
                         earliest[0] = self.get_earliest(now, (previously_activate_time, previously_activated))
                         return earliest[0] is not None
                     await self._entries_cond.wait_for(grab_earliest)
@@ -117,48 +133,56 @@ class Scheduler:
             traceback.print_exc()
             raise
                 
-    async def add(self, entry: Entry):
-        async def adder(entries):
+    async def add(self, entry: Entry) -> None:
+        async def adder(entries: List[Entry]) -> List[Entry]:
             logger.info(f"Adding entry {entry}")
             entries.append(entry)
             return entries
         await self.update_entries(adder)
 
-    async def remove(self, entry: Entry):
-        async def remover(entries):
+    async def remove(self, entry: Entry) -> None:
+        async def remover(entries: List[Entry]) -> List[Entry]:
             logger.info(f"Removing entry {entry}")
-            return [e for e in self._entries if e is not entry]
+            return [e for e in entries if e is not entry]
         await self.update_entries(remover)
 
-    async def update_entries(self, updater: Callable[[List[Entry]], Awaitable[List[Entry]]]):
+    async def update_entries(self, updater: Callable[[List[Entry]], Awaitable[List[Entry]]]) -> None:
         async with self._entries_cond:
             logger.info(f"Updating entries")
             self._entries = await updater(self._entries)
             self._entries_cond.notify_all()
 
-class TestSchedule(aiounittest.AsyncTestCase):
-    def test_empty(self):
+class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
+    def test_empty(self) -> None:
         sch = Scheduler()
         self.assertTrue(sch.get_earliest(0.0) is None)
         
-    async def test_one1(self):
+    async def test_one1(self) -> None:
         sch = Scheduler()
-        callable = lambda: None
+        async def callable() -> None:
+            return None
         entry = Daily(callable, datetime.time.fromisoformat("00:00+00:00"))
         await sch.add(entry)
 
         t0 = sch.get_earliest(0.0)
         t1 = sch.get_earliest(1.0)
-        
+
+        self.assertIsNotNone(t0)
+        assert t0
+
+        self.assertIsNotNone(t1)
+        assert t1
+
         self.assertEqual(t0[0], 0.0)
         self.assertTrue(t0[1] is entry)
         
         self.assertEqual(t1[0], 24 * 3600.0)
         self.assertTrue(t1[1] is entry)
        
-    async def test_one2(self):
+    async def test_one2(self) -> None:
         sch = Scheduler()
-        callable = lambda: None
+        async def callable() -> None:
+            return None
         entry = Daily(callable, datetime.time.fromisoformat("04:00+00:00"))
         await sch.add(entry)
         
@@ -166,6 +190,15 @@ class TestSchedule(aiounittest.AsyncTestCase):
         t1 = sch.get_earliest(4 * 3600.0)
         t2 = sch.get_earliest(6 * 3600.0)
         
+        self.assertIsNotNone(t0)
+        assert t0
+
+        self.assertIsNotNone(t1)
+        assert t1
+
+        self.assertIsNotNone(t2)
+        assert t2
+
         self.assertEqual(t0[0], (4) * 3600.0)
         self.assertTrue(t0[1] is entry)
         
@@ -175,9 +208,10 @@ class TestSchedule(aiounittest.AsyncTestCase):
         self.assertEqual(t2[0], (4 + 24) * 3600.0)
         self.assertTrue(t2[1] is entry)
 
-    async def test_two(self):
+    async def test_two(self) -> None:
         sch = Scheduler()
-        callable = lambda: None
+        async def callable() -> None:
+            return None
         entry1 = Daily(callable, datetime.time.fromisoformat("00:00+00:00"))
         await sch.add(entry1)
         entry2 = Daily(callable, datetime.time.fromisoformat("01:00+00:00"))
@@ -191,6 +225,27 @@ class TestSchedule(aiounittest.AsyncTestCase):
         t5 = sch.get_earliest(24 * 3600.0 - 1)
         t6 = sch.get_earliest(24 * 3600.0 + 1)
         
+        self.assertIsNotNone(t0)
+        assert t0
+
+        self.assertIsNotNone(t1)
+        assert t1
+
+        self.assertIsNotNone(t2)
+        assert t2
+
+        self.assertIsNotNone(t3)
+        assert t3
+
+        self.assertIsNotNone(t4)
+        assert t4
+
+        self.assertIsNotNone(t5)
+        assert t5
+
+        self.assertIsNotNone(t6)
+        assert t6
+
         self.assertEqual(t0[0], 0.0)
         self.assertTrue(t0[1] is entry1)
         
@@ -212,28 +267,28 @@ class TestSchedule(aiounittest.AsyncTestCase):
         self.assertEqual(t6[0], (24 + 1) * 3600.0)
         self.assertTrue(t6[1] is entry2)
 
-    async def test_add_live1(self):
+    async def test_add_live1(self) -> None:
         executions_cond = asyncio.Condition()
         ready_flag = [False]
         now = [0.0]
-        async def fake_sleep(delta):
+        async def fake_sleep(delta: float) -> None:
             #print(f"\"sleeping\" for {delta}")
             now[0] += delta
-        async def fake_now():
+        async def fake_now() -> float:
             #print(f"\"now\" is {now[0]}")
             return now[0]
         sch = Scheduler()
         sch.sleep = fake_sleep
         sch.now = fake_now
         
-        async def callable():
+        async def callable() -> None:
             ready_flag[0] = True
             async with executions_cond:
                 executions_cond.notify_all()
 
         await sch.start()
 
-        async def run_operations():
+        async def run_operations() -> None:
             #print("run operations")
             await sch.add(Daily(callable, datetime.time.fromisoformat("01:00+00:00")))
             #print("done running operations")
@@ -248,22 +303,22 @@ class TestSchedule(aiounittest.AsyncTestCase):
         await sch.stop()
         assert ready_flag[0]
 
-    async def test_add_live2(self):
+    async def test_add_live2(self) -> None:
         now = [0.0]
         executions = [] # type: List[Tuple[float, str]]
         executions_cond = asyncio.Condition()
-        async def fake_sleep(delta):
+        async def fake_sleep(delta: float) -> None:
             #print(f"\"sleeping\" for {delta}")
             now[0] += delta
-        async def fake_now():
+        async def fake_now() -> float:
             #print(f"\"now\" is {now[0]}")
             return now[0]
         sch = Scheduler()
         sch.sleep = fake_sleep
         sch.now = fake_now
-        
-        def mk_callable(label):
-            async def callable():
+
+        def mk_callable(label: str) -> Callable[[], Coroutine[Any, Any, None]]:
+            async def callable() -> None:
                 async with executions_cond:
                     executions.append((now[0], label))
                     executions_cond.notify_all()
@@ -272,7 +327,7 @@ class TestSchedule(aiounittest.AsyncTestCase):
 
         await sch.start()
 
-        async def run_operations():
+        async def run_operations() -> None:
             await sch.add(Daily(mk_callable("callable1"), datetime.time.fromisoformat("01:00+00:00")))
             await sch.add(Daily(mk_callable("callable2"), datetime.time.fromisoformat("02:00+00:00")))
         
@@ -284,7 +339,7 @@ class TestSchedule(aiounittest.AsyncTestCase):
                                 ((24 + 1) * 3600.0, "callable1"),
                                 ((24 + 2) * 3600.0, "callable2")]
 
-        def executions_wait():
+        def executions_wait() -> bool:
             #print(f"executions_wait")
             return len(executions) >= len(reference_executions)
         

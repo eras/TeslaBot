@@ -17,5 +17,6 @@ setup(
         "slackclient==2.9.3",
         "python-socketio[asyncio_client]==5.5.2",
         "aiohttp==3.8.1",
+        "aiounittest==1.4.1",
     ],
 )
