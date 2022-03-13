@@ -1,5 +1,5 @@
 import os
-from typing import List, Union, Optional, Any
+from typing import List, Union, Optional, Any, Tuple
 import asyncio
 import aiohttp
 import json
@@ -73,7 +73,7 @@ class SlackControl(control.Control):
         self._channel_id = self._state.state.get("slack", "channel_id", fallback=None)
         self._client = WebClient(token=api_token, run_async=True)
         self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function[CommandContext]("ping", self._command_ping))
+        self._local_commands.register(commands.Function("ping", commands.VldEmpty(), self._command_ping))
         self._aiohttp_session = aiohttp.ClientSession()
 
     async def setup(self) -> None:
@@ -162,7 +162,7 @@ class SlackControl(control.Control):
             logger.error(f"exception: {exn}")
             raise exn
 
-    async def _command_ping(self, context: CommandContext, args: List[str]) -> None:
+    async def _command_ping(self, context: CommandContext, valid: Tuple[()], args: List[str]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
     async def send_message(self,

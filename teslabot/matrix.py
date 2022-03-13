@@ -6,7 +6,7 @@ from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from nio.exceptions import OlmUnverifiedDeviceError
 from configparser import ConfigParser
-from typing import Optional, List, Callable, Coroutine, Any
+from typing import Optional, List, Callable, Coroutine, Any, Tuple
 
 from . import control
 from .control import CommandContext
@@ -66,7 +66,7 @@ class MatrixControl(control.Control):
         self._pending_event_handlers = []
 
         self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function[CommandContext]("ping", self._command_ping))
+        self._local_commands.register(commands.Function("ping", commands.VldEmpty(), self._command_ping))
 
         self._state.add_element(StateSave(self))
         self._client = AsyncClient(self._config.config["matrix"]["homeserver"],
@@ -108,7 +108,7 @@ class MatrixControl(control.Control):
                 logger.info(f"Login successful")
                 self._state.save()
 
-    async def _command_ping(self, context: CommandContext, args: List[str]) -> None:
+    async def _command_ping(self, context: CommandContext, valid: Tuple[()], args: List[str]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
     async def send_message(self,

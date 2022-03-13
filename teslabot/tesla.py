@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import re
 
 import teslapy
@@ -24,9 +24,22 @@ class ArgException(AppException):
 class VehicleException(AppException):
     pass
 
+class ValidVehicle(commands.VldDelayed[str]):
+    tesla: teslapy.Tesla
+
+    def __init__(self, tesla: teslapy.Tesla) -> None:
+        super().__init__(self.make_validator)
+        self.tesla = tesla
+
+    def make_validator(self) -> commands.Validator[str]:
+        vehicles = self.tesla.vehicle_list()
+        display_names = [vehicle["display_name"] for vehicle in vehicles]
+        return commands.VldOneOfStrings(display_names)
+
 class App(ControlCallback):
     control: Control
     config: Config
+    tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
 
     def __init__(self, control: Control, config: Config) -> None:
@@ -35,10 +48,10 @@ class App(ControlCallback):
         control.callback = self
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
         self._commands = commands.Commands()
-        self._commands.register(commands.Function("authorize", self._command_authorized))
-        self._commands.register(commands.Function("vehicles", self._command_vehicles))
-        self._commands.register(commands.Function("climate", self._command_climate))
-        self._commands.register(commands.Function("info", self._command_info))
+        self._commands.register(commands.Function("authorize", commands.VldAnyStr(), self._command_authorized))
+        self._commands.register(commands.Function("vehicles", commands.VldEmpty(), self._command_vehicles))
+        self._commands.register(commands.Function("climate", commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(self.tesla))), self._command_climate))
+        self._commands.register(commands.Function("info", commands.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -59,18 +72,18 @@ class App(ControlCallback):
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
 
-    async def _command_authorized(self, context: CommandContext, args: List[str]) -> None:
+    async def _command_authorized(self, context: CommandContext, authorization_response: str, args: List[str]) -> None:
         if not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         elif len(args) != 1:
             await self.control.send_message(context.to_message_context(), "usage: !authorize https://the/url/you/ended/up/at")
         else:
             await self.control.send_message(context.to_message_context(), "Authorization successful")
-            self.tesla.fetch_token(authorization_response=args[0])
+            self.tesla.fetch_token(authorization_response=authorization_response)
             vehicles = self.tesla.vehicle_list()
             await self.control.send_message(context.to_message_context(), str(vehicles[0]))
 
-    async def _command_vehicles(self, context: CommandContext, args: List[str]) -> None:
+    async def _command_vehicles(self, context: CommandContext, valid: Tuple[()], args: List[str]) -> None:
         if len(args) != 0:
             await self.control.send_message(context.to_message_context(), "usage: !vehicles")
         else:
@@ -96,8 +109,8 @@ class App(ControlCallback):
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
-    async def _command_info(self, context: CommandContext, args: List[str]) -> None:
-        vehicle = await self._get_vehicle(args[0] if len(args) >= 1 else None)
+    async def _command_info(self, context: CommandContext, vehicle_name: Optional[str], args: List[str]) -> None:
+        vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         try:
             data = vehicle.get_vehicle_data()
@@ -130,7 +143,7 @@ class App(ControlCallback):
             await self.control.send_message(context.to_message_context(), str(exn))
 
 
-    async def _command_climate(self, context: CommandContext, args: List[str]) -> None:
+    async def _command_climate(self, context: CommandContext, valid: Tuple[bool, Optional[str]], args: List[str]) -> None:
         if len(args) != 1 and len(args) != 2:
             await self.control.send_message(context.to_message_context(), "usage: !climate on|off [Cherry]")
         else:
