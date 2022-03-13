@@ -129,6 +129,7 @@ class Scheduler:
                 next_time = earliest[0][0]
                 next_entry = earliest[0][1]
 
+                now = await self.now()
                 till_next = next_time - now
                 logger.info(f"Sleeping {till_next} seconds to {datetime.datetime.fromtimestamp(next_time)} before running task")
                 if till_next > 0:
