@@ -182,6 +182,7 @@ class App(ControlCallback):
                 command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
                 logger.debug(f"Sending {command}")
                 result = vehicle.command(command)
+                error = None
                 break
             except teslapy.VehicleError as exn:
                 logger.debug(f"Vehicle error: {exn}")
