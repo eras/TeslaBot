@@ -73,6 +73,10 @@ class AsyncSleepProtocol(Protocol):
     def __call__(self, delta: float, condition: asyncio.Condition) -> Coroutine[Any, Any, None]:
         ...
 
+class TimeProtocol(Protocol):
+    def __call__(self) -> Coroutine[Any, Any, float]:
+        ...
+
 async def default_sleep(delta: float, condition: asyncio.Condition) -> None:
     try:
         await asyncio.wait_for(condition.wait(), timeout=delta)
@@ -81,12 +85,16 @@ async def default_sleep(delta: float, condition: asyncio.Condition) -> None:
         pass
 
 class Scheduler:
+    now: TimeProtocol
     sleep: AsyncSleepProtocol
+    _entries: List[Entry]
+    _entries_cond: asyncio.Condition
+    _task: Optional["asyncio.Task[None]"]
 
     def __init__(self) -> None:
         self._entries = [] # type: List[Entry]
         self._entries_cond = asyncio.Condition()
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task = None
         async def get_time() -> float:
             return time.time()
         self.now = get_time # allows overriding time retrieval functino for test purposes
