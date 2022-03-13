@@ -70,11 +70,15 @@ class OneShot(Entry):
             return None
 
 class AsyncSleepProtocol(Protocol):
-    def __call__(self, delta: float) -> Coroutine[Any, Any, None]:
+    def __call__(self, delta: float, condition: asyncio.Condition) -> Coroutine[Any, Any, None]:
         ...
 
-async def default_sleep(delta: float) -> None:
-    await asyncio.sleep(delta)
+async def default_sleep(delta: float, condition: asyncio.Condition) -> None:
+    try:
+        await asyncio.wait_for(condition.wait(), timeout=delta)
+    except asyncio.TimeoutError:
+        # The caller will need to determine if this has slept this interval in full
+        pass
 
 class Scheduler:
     sleep: AsyncSleepProtocol
@@ -133,18 +137,21 @@ class Scheduler:
                 till_next = next_time - now
                 logger.info(f"Sleeping {till_next} seconds to {datetime.datetime.fromtimestamp(next_time)} before running task")
                 if till_next > 0:
-                    await self.sleep(till_next)
+                    async with self._entries_cond:
+                        await self.sleep(till_next, self._entries_cond)
 
-                if next_time != previously_activate_time:
-                    previously_activated = []
-                previously_activate_time = next_time
-                previously_activated.append(next_entry)
-                try:
-                    await next_entry.callback()
-                except asyncio.CancelledError:
-                    pass
-                except:
-                    logger.info(f"Scheduler task threw an exception, ignoring: {traceback.format_exc()}")
+                now = await self.now()
+                if now >= next_time:
+                    if next_time != previously_activate_time:
+                        previously_activated = []
+                    previously_activate_time = next_time
+                    previously_activated.append(next_entry)
+                    try:
+                        await next_entry.callback()
+                    except asyncio.CancelledError:
+                        pass
+                    except:
+                        logger.info(f"Scheduler task threw an exception, ignoring: {traceback.format_exc()}")
         except asyncio.CancelledError:
             pass
         except:
@@ -289,7 +296,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         executions_cond = asyncio.Condition()
         ready_flag = [False]
         now = [0.0]
-        async def fake_sleep(delta: float) -> None:
+        async def fake_sleep(delta: float, condition: asyncio.Condition) -> None:
             #print(f"\"sleeping\" for {delta}")
             now[0] += delta
         async def fake_now() -> float:
@@ -325,7 +332,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         now = [0.0]
         executions = [] # type: List[Tuple[float, str]]
         executions_cond = asyncio.Condition()
-        async def fake_sleep(delta: float) -> None:
+        async def fake_sleep(delta: float, condition: asyncio.Condition) -> None:
             #print(f"\"sleeping\" for {delta}")
             now[0] += delta
         async def fake_now() -> float:
