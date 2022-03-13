@@ -12,6 +12,15 @@ class CommandContext:
 class MessageContext:
     admin_room: bool
 
+class ControlException(Exception):
+    pass
+
+class MessageSendError(ControlException):
+    pass
+
+class ConfigError(ControlException):
+    pass
+
 class ControlCallback(ABC):
     @abstractmethod
     async def command_callback(self,
@@ -41,4 +50,9 @@ class Control(ABC):
                            message_context: MessageContext,
                            message: str) -> None:
         """Sends a message to the admin or the control channel"""
+        pass
+
+    @abstractmethod
+    async def run(self) -> None:
+        """Run indefinitely"""
         pass

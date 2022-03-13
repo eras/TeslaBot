@@ -1,7 +1,9 @@
 import asyncio
 
 from . import log
+from .control import Control
 from . import matrix
+from . import slack
 from . import config
 from . import state
 from .env import Env
@@ -21,10 +23,18 @@ async def async_main() -> None:
     logger.setLevel(log.INFO)
     logger.info("Starting")
     matrix.logger.setLevel(log.INFO)
+    slack.logger.setLevel(log.DEBUG)
     args = config.get_args()
     config_ = config.Config(filename=args.config)
     state_ = state.State(filename=config_.config["common"]["state_file"])
-    control = matrix.MatrixControl(Env(config=config_, state=state_))
+    control_name = config_.config["common"]["control"]
+    if control_name == "matrix":
+        control : Control = matrix.MatrixControl(Env(config=config_, state=state_))
+    elif control_name == "slack":
+        control = slack.SlackControl(Env(config=config_, state=state_))
+    else:
+        logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
+        return
     app = tesla.App(config=config_, control=control)
     await control.setup()
     asyncio.create_task(control.run())
