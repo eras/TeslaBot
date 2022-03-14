@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 class StateElement(ABC):
     @abstractmethod
-    def save(self, state: ConfigParser) -> None:
+    async def save(self, state: ConfigParser) -> None:
         """This method is called to update the state before saving it"""
         pass
 
@@ -23,9 +23,9 @@ class State:
     def add_element(self, element: StateElement) -> None:
         self.elements.append(element)
 
-    def save(self) -> None:
+    async def save(self) -> None:
         for element in self.elements:
-            element.save(self.state)
+            await element.save(self.state)
         # TODO: use safe code for overwriting
         with open(self.filename, 'w') as file:
             self.state.write(file)

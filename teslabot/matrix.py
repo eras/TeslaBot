@@ -25,7 +25,7 @@ class StateSave(StateElement):
     def __init__(self, control: "MatrixControl") -> None:
         self.control = control
 
-    def save(self, state: ConfigParser) -> None:
+    async def save(self, state: ConfigParser) -> None:
         if self.control._logged_in:
             if not "matrix" in state:
                 state["matrix"] = {}

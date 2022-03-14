@@ -33,7 +33,7 @@ class StateSave(StateElement):
     def __init__(self, control: "SlackControl") -> None:
         self.control = control
 
-    def save(self, state: ConfigParser) -> None:
+    async def save(self, state: ConfigParser) -> None:
         if not "slack" in state:
             state["slack"] = {}
         st = state["slack"]
