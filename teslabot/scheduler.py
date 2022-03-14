@@ -7,10 +7,16 @@ import aiounittest
 import unittest
 import traceback
 import logging
-from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any
+from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any, TypeVar
 from typing_extensions import Protocol
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar('T')
+
+def assert_some(x: Optional[T]) -> T:
+    assert x is not None
+    return x
 
 class CallbackProtocol(Protocol):
     def __call__(self) -> Awaitable[None]:
@@ -169,6 +175,24 @@ class Scheduler:
     async def get_entries(self) -> List[Entry]:
         async with self._entries_cond:
             return self._entries[:]
+
+    async def with_entries(self, fn: Callable[[List[Entry]], Awaitable[Tuple[List[Entry], T]]]) -> T:
+        ret_value: List[Optional[T]] = [None]
+        exn_value: List[Optional[Exception]] = [None]
+        async def op(entries: List[Entry]) -> List[Entry]:
+            logger.debug(f"with_entries in {entries}")
+            try:
+                entries, value = await fn(entries)
+                ret_value[0] = value
+            except Exception as exn:
+                exn_value[0] = exn
+            logger.debug(f"with_entries out {entries}")
+            return entries
+        await self.update_entries(op)
+        if exn_value[0]:
+            raise exn_value[0]
+        else:
+            return assert_some(ret_value[0])
 
     async def add(self, entry: Entry) -> None:
         async def adder(entries: List[Entry]) -> List[Entry]:
