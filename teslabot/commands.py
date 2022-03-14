@@ -127,6 +127,21 @@ class VldRegex(Validator[Tuple[str, ...]]):
         else:
             return ValidatorFail(f"Failed to match regex {self.regex}")
 
+class VldInt(Validator[int]):
+    validator: VldRegex
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.validator = VldRegex(r"[0-9]+", [0])
+
+    def validate(self, args: List[str]) -> ValidatorResult[int]:
+        result = self.validator.validate(args)
+        if isinstance(result, ValidatorOK):
+            return ValidatorOK(int(result.value), processed=result.processed)
+        else:
+            assert isinstance(result, ValidatorFail)
+            return result
+
 class VldBool(Validator[bool]):
     def validate(self, args: List[str]) -> ValidatorResult[bool]:
         if len(args) == 0:
