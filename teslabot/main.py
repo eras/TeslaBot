@@ -8,6 +8,7 @@ from . import config
 from . import state
 from .env import Env
 from . import tesla
+from . import scheduler
 
 logger = log.getLogger(__name__)
 
@@ -22,8 +23,12 @@ async def async_main() -> None:
     log.setup_logging()
     logger.setLevel(log.INFO)
     logger.info("Starting")
-    matrix.logger.setLevel(log.INFO)
-    slack.logger.setLevel(log.DEBUG)
+
+    matrix.    logger.setLevel(log.INFO)
+    slack.     logger.setLevel(log.DEBUG)
+    scheduler. logger.setLevel(log.INFO)
+    tesla.     logger.setLevel(log.DEBUG)
+
     args = config.get_args()
     config_ = config.Config(filename=args.config)
     state_ = state.State(filename=config_.config["common"]["state_file"])
