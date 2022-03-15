@@ -47,7 +47,7 @@ class SlackControl(control.Control):
     _state: State
     _channel_name: str
     _channel_id: Optional[str]
-    _local_commands: commands.Commands[CommandContext]
+
     _api_token: str
     _app_token: str
     _ws_task: Any               # async_io.Task[Any] won't work with Python..
@@ -73,8 +73,6 @@ class SlackControl(control.Control):
         self._channel_name = channel_name
         self._channel_id = self._state.state.get("slack", "channel_id", fallback=None)
         self._client = WebClient(token=api_token, run_async=True)
-        self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function("ping", parser.Empty(), self._command_ping))
         self._aiohttp_session = aiohttp.ClientSession()
 
     async def setup(self) -> None:
@@ -147,8 +145,8 @@ class SlackControl(control.Control):
                                 logger.info(f"< {text}")
                                 invocation = commands.Invocation.parse(text[1:])
                                 command_context = CommandContext(admin_room=False)
-                                if self._local_commands.has_command(invocation.name):
-                                    await self._local_commands.invoke(command_context, invocation)
+                                if self.local_commands.has_command(invocation.name):
+                                    await self.local_commands.invoke(command_context, invocation)
                                 else:
                                     await self.callback.command_callback(command_context, invocation)
                     if got_messages:

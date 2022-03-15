@@ -45,7 +45,6 @@ class MatrixControl(control.Control):
     _state: State
     _logged_in: bool
     _sync_token: Optional[str]
-    _local_commands: commands.Commands[CommandContext]
     _init_done: asyncio.Event
 
     _pending_event_handlers: List[Callable[[], Coroutine[Any, Any, None]]]
@@ -65,9 +64,6 @@ class MatrixControl(control.Control):
                 raise
 
         self._pending_event_handlers = []
-
-        self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function("ping", parser.Empty(), self._command_ping))
 
         self._state.add_element(StateSave(self))
         self._client = AsyncClient(self._config.config["matrix"]["homeserver"],
@@ -107,10 +103,7 @@ class MatrixControl(control.Control):
             elif isinstance(login, LoginResponse):
                 self._logged_in = True
                 logger.info(f"Login successful")
-                self._state.save()
-
-    async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
-        await self.send_message(context.to_message_context(), "pong")
+                await self._state.save()
 
     async def send_message(self,
                            message_context: control.MessageContext,
@@ -166,8 +159,8 @@ class MatrixControl(control.Control):
                 try:
                     invocation = commands.Invocation.parse(event.body[1:])
                     command_context = CommandContext(admin_room=admin_room)
-                    if self._local_commands.has_command(invocation.name):
-                        await self._local_commands.invoke(command_context, invocation)
+                    if self.local_commands.has_command(invocation.name):
+                        await self.local_commands.invoke(command_context, invocation)
                     else:
                         await self.callback.command_callback(command_context, invocation)
                 except commands.InvocationParseError:
