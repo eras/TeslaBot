@@ -173,10 +173,6 @@ class MatrixControl(control.Control):
                     logger.error(f"Failed to parse command: {event.body[1:]}")
         else:
             self._pending_event_handlers.append(lambda: self._message_callback(room, event))
-        # print(
-        #     f"Message received in room {room.display_name}\n"
-        #     f"{room.user_name(event.sender)} | {event.body}"
-        # )
 
     async def _sync_callback(self, response: SyncResponse) -> None:
         self._sync_token = response.next_batch
