@@ -108,9 +108,18 @@ def valid_climate(app: "App") -> commands.Validator[ClimateArgs]:
     return commands.VldAdjacent(commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(app.tesla))),
                                 commands.VldEmpty())
 
+InfoArgs = Tuple[Optional[str], Tuple[()]]
+def valid_info(app: "App") -> commands.Validator[InfoArgs]:
+    return commands.VldAdjacent(commands.VldValidOrMissing(ValidVehicle(app.tesla)),
+                                commands.VldEmpty())
+
 SchedulableType = List[str]
 def valid_schedulable(app: "App") -> commands.Validator[SchedulableType]:
-    return commands.VldCaptureOnly(commands.VldAdjacent(commands.VldFixedStr("climate"), valid_climate(app)))
+    cmds = [
+        commands.VldAdjacent(commands.VldFixedStr("climate"), valid_climate(app)).any(),
+        commands.VldAdjacent(commands.VldFixedStr("info"), valid_info(app)).any(),
+    ]
+    return commands.VldCaptureOnly(commands.VldOneOf(cmds))
 
 class App(ControlCallback):
     control: Control
@@ -135,7 +144,7 @@ class App(ControlCallback):
         self._commands.register(c.Function("authorize", c.VldAnyStr(), self._command_authorized))
         self._commands.register(c.Function("vehicles", c.VldEmpty(), self._command_vehicles))
         self._commands.register(c.Function("climate", valid_climate(self), self._command_climate))
-        self._commands.register(c.Function("info", c.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
+        self._commands.register(c.Function("info", valid_info(self), self._command_info))
         self._commands.register(c.Function("at", c.VldAdjacent(c.VldHourMinute(), valid_schedulable(self)), self._command_at))
         self._commands.register(c.Function("rm", c.VldInt(), self._command_rm))
         self._commands.register(c.Function("ls", c.VldEmpty(), self._command_ls))
@@ -270,7 +279,8 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})")
 
-    async def _command_info(self, context: CommandContext, vehicle_name: Optional[str]) -> None:
+    async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
+        vehicle_name, _ = args
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         try:
