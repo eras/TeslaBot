@@ -45,9 +45,9 @@ class App(ControlCallback):
     _commands: commands.Commands[CommandContext]
     _scheduler: scheduler.Scheduler
 
-    def __init__(self, control: Control, config: Config) -> None:
+    def __init__(self, control: Control, env: Env) -> None:
         self.control = control
-        self.config = config
+        self.config = env.config
         control.callback = self
         self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
