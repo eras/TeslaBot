@@ -18,6 +18,7 @@ from .control import CommandContext, MessageContext
 from .env import Env
 from .config import Config
 from . import commands
+from . import parser
 from .state import State, StateElement
 from .utils import get_optional
 
@@ -73,7 +74,7 @@ class SlackControl(control.Control):
         self._channel_id = self._state.state.get("slack", "channel_id", fallback=None)
         self._client = WebClient(token=api_token, run_async=True)
         self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function("ping", commands.VldEmpty(), self._command_ping))
+        self._local_commands.register(commands.Function("ping", parser.Empty(), self._command_ping))
         self._aiohttp_session = aiohttp.ClientSession()
 
     async def setup(self) -> None:

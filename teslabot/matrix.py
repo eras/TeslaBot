@@ -16,6 +16,7 @@ from .state import State, StateElement
 from . import log
 from .env import Env
 from . import commands
+from . import parser
 
 logger = log.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class MatrixControl(control.Control):
         self._pending_event_handlers = []
 
         self._local_commands = commands.Commands()
-        self._local_commands.register(commands.Function("ping", commands.VldEmpty(), self._command_ping))
+        self._local_commands.register(commands.Function("ping", parser.Empty(), self._command_ping))
 
         self._state.add_element(StateSave(self))
         self._client = AsyncClient(self._config.config["matrix"]["homeserver"],

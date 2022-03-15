@@ -16,6 +16,7 @@ from . import log
 from .config import Config
 from .state import State, StateElement
 from . import commands
+from . import parser as p
 from .utils import assert_some
 from . import scheduler
 from .env import Env
@@ -31,17 +32,17 @@ class ArgException(AppException):
 class VehicleException(AppException):
     pass
 
-class ValidVehicle(commands.VldDelayed[str]):
+class ValidVehicle(p.Delayed[str]):
     tesla: teslapy.Tesla
 
     def __init__(self, tesla: teslapy.Tesla) -> None:
         super().__init__(self.make_validator)
         self.tesla = tesla
 
-    def make_validator(self) -> commands.Validator[str]:
+    def make_validator(self) -> p.Parser[str]:
         vehicles = self.tesla.vehicle_list()
         display_names = [vehicle["display_name"] for vehicle in vehicles]
-        return commands.VldOneOfStrings(display_names)
+        return p.OneOfStrings(display_names)
 
 @dataclass
 class AppTimerInfo:
@@ -104,22 +105,22 @@ class AppState(StateElement):
                 timers[str(entry.info.id)] = json.dumps(entry.json())
 
 ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
-def valid_climate(app: "App") -> commands.Validator[ClimateArgs]:
-    return commands.VldAdjacent(commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(app.tesla))),
-                                commands.VldEmpty())
+def valid_climate(app: "App") -> p.Parser[ClimateArgs]:
+    return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app.tesla))),
+                      p.Empty())
 
 InfoArgs = Tuple[Optional[str], Tuple[()]]
-def valid_info(app: "App") -> commands.Validator[InfoArgs]:
-    return commands.VldAdjacent(commands.VldValidOrMissing(ValidVehicle(app.tesla)),
-                                commands.VldEmpty())
+def valid_info(app: "App") -> p.Parser[InfoArgs]:
+    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
+                      p.Empty())
 
 SchedulableType = List[str]
-def valid_schedulable(app: "App") -> commands.Validator[SchedulableType]:
+def valid_schedulable(app: "App") -> p.Parser[SchedulableType]:
     cmds = [
-        commands.VldAdjacent(commands.VldFixedStr("climate"), valid_climate(app)).any(),
-        commands.VldAdjacent(commands.VldFixedStr("info"), valid_info(app)).any(),
+        p.Adjacent(p.FixedStr("climate"), valid_climate(app)).any(),
+        p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
     ]
-    return commands.VldCaptureOnly(commands.VldOneOf(cmds))
+    return p.CaptureOnly(p.OneOf(cmds))
 
 class App(ControlCallback):
     control: Control
@@ -141,13 +142,13 @@ class App(ControlCallback):
         self._scheduler_id = 1
         c = commands
         self._commands = c.Commands()
-        self._commands.register(c.Function("authorize", c.VldAnyStr(), self._command_authorized))
-        self._commands.register(c.Function("vehicles", c.VldEmpty(), self._command_vehicles))
+        self._commands.register(c.Function("authorize", p.AnyStr(), self._command_authorized))
+        self._commands.register(c.Function("vehicles", p.Empty(), self._command_vehicles))
         self._commands.register(c.Function("climate", valid_climate(self), self._command_climate))
         self._commands.register(c.Function("info", valid_info(self), self._command_info))
-        self._commands.register(c.Function("at", c.VldAdjacent(c.VldHourMinute(), valid_schedulable(self)), self._command_at))
-        self._commands.register(c.Function("rm", c.VldInt(), self._command_rm))
-        self._commands.register(c.Function("ls", c.VldEmpty(), self._command_ls))
+        self._commands.register(c.Function("at", p.Adjacent(p.HourMinute(), valid_schedulable(self)), self._command_at))
+        self._commands.register(c.Function("rm", p.Int(), self._command_rm))
+        self._commands.register(c.Function("ls", p.Empty(), self._command_ls))
 
     def _next_scheduler_id(self) -> int:
         id = self._scheduler_id

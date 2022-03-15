@@ -3,6 +3,7 @@ import unittest
 from typing import List, TypeVar, Optional, Tuple
 
 import teslabot.commands as c
+import teslabot.parser as p
 
 Result = TypeVar('Result', bound=object)
 
@@ -11,7 +12,7 @@ class TestCommands(unittest.TestCase):
         super().__init__(method_name)
         self.longMessage = True
 
-    def setup_commands(self, called: List[Optional[Result]], valid: c.Validator[Result]) -> c.Commands[None]:
+    def setup_commands(self, called: List[Optional[Result]], valid: p.Parser[Result]) -> c.Commands[None]:
         cmds = c.Commands[None]()
         async def command0(context: None, valid: Result) -> None:
             called[0] = valid
@@ -23,8 +24,8 @@ class TestCommands(unittest.TestCase):
 
     def test_simple_call(self) -> None:
         async def test() -> None:
-            called: List[Optional[c.Empty]] = [None, None]
-            cmds = self.setup_commands(called, c.VldEmpty())
+            called: List[Optional[p.EmptyVal]] = [None, None]
+            cmds = self.setup_commands(called, p.Empty())
             await cmds.invoke(None, c.Invocation(name="test0", args=[]))
             self.assertIsNotNone(called[0], "Command test0 was not called")
             self.assertIsNone(called[1], "Command test1 was called")
@@ -33,7 +34,7 @@ class TestCommands(unittest.TestCase):
     def test_validated_call(self) -> None:
         async def test() -> None:
             called: List[Optional[str]] = [None, None]
-            cmds = self.setup_commands(called, c.VldAnyStr())
+            cmds = self.setup_commands(called, p.AnyStr())
             await cmds.invoke(None, c.Invocation(name="test0", args=["arg1"]))
             self.assertEqual(called[0], "arg1", "Command test0 was not called")
             self.assertIsNone(called[1], "Command test1 was called")
@@ -41,272 +42,272 @@ class TestCommands(unittest.TestCase):
 
     def test_simple_validators(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldEmpty().validate([]),
-                             c.ValidatorOK((), processed=0))
+            self.assertEqual(p.Empty().parse([]),
+                             p.ParseOK((), processed=0))
         with self.subTest():
-            self.assertEqual(c.VldEmpty().validate(["hei"]),
-                             c.ValidatorFail("Expected no more arguments"))
+            self.assertEqual(p.Empty().parse(["hei"]),
+                             p.ParseFail("Expected no more arguments"))
         with self.subTest():
-            self.assertEqual(c.VldAnyStr().validate([]),
-                             c.ValidatorFail("No argument provided"))
+            self.assertEqual(p.AnyStr().parse([]),
+                             p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(c.VldAnyStr().validate([""]),
-                             c.ValidatorOK("", processed=1))
+            self.assertEqual(p.AnyStr().parse([""]),
+                             p.ParseOK("", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldAnyStr().validate(["moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            self.assertEqual(p.AnyStr().parse(["moi"]),
+                             p.ParseOK("moi", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldAnyStr().validate(["moi", "moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            self.assertEqual(p.AnyStr().parse(["moi", "moi"]),
+                             p.ParseOK("moi", processed=1))
 
     def test_bool(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldBool().validate([]),
-                             c.ValidatorFail("No argument provided"))
+            self.assertEqual(p.Bool().parse([]),
+                             p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate([""]),
-                             c.ValidatorFail('Invalid argument "" for boolean'))
+            self.assertEqual(p.Bool().parse([""]),
+                             p.ParseFail('Invalid argument "" for boolean'))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean'))
+            self.assertEqual(p.Bool().parse(["moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean'))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["True"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Bool().parse(["True"]),
+                             p.ParseOK(True, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["true"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Bool().parse(["true"]),
+                             p.ParseOK(True, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["FALSE"]),
-                             c.ValidatorOK(False, processed=1))
+            self.assertEqual(p.Bool().parse(["FALSE"]),
+                             p.ParseOK(False, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["false"]),
-                             c.ValidatorOK(False, processed=1))
+            self.assertEqual(p.Bool().parse(["false"]),
+                             p.ParseOK(False, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["0"]),
-                             c.ValidatorOK(False, processed=1))
+            self.assertEqual(p.Bool().parse(["0"]),
+                             p.ParseOK(False, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["1"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Bool().parse(["1"]),
+                             p.ParseOK(True, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldBool().validate(["off"]),
-                             c.ValidatorOK(False, processed=1))
-        with self.subTest(): self.assertEqual(c.VldBool().validate(["on"]),
-                                              c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Bool().parse(["off"]),
+                             p.ParseOK(False, processed=1))
+        with self.subTest(): self.assertEqual(p.Bool().parse(["on"]),
+                                              p.ParseOK(True, processed=1))
 
     def test_regex(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldRegex(r".*", [0]).validate([""]),
-                             c.ValidatorOK("", processed=1))
+            self.assertEqual(p.Regex(r".*", [0]).parse([""]),
+                             p.ParseOK("", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldRegex(r".*", [0]).validate(["moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            self.assertEqual(p.Regex(r".*", [0]).parse(["moi"]),
+                             p.ParseOK("moi", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldRegex(r".(oi)", [0]).validate(["moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            self.assertEqual(p.Regex(r".(oi)", [0]).parse(["moi"]),
+                             p.ParseOK("moi", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldRegex(r".(oi)", [1]).validate(["moi"]),
-                             c.ValidatorOK("oi", processed=1))
+            self.assertEqual(p.Regex(r".(oi)", [1]).parse(["moi"]),
+                             p.ParseOK("oi", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldRegex(r".(o)(i)", [1, 2]).validate(["moi"]),
-                             c.ValidatorOK(("o", "i"), processed=1))
+            self.assertEqual(p.Regex(r".(o)(i)", [1, 2]).parse(["moi"]),
+                             p.ParseOK(("o", "i"), processed=1))
 
     def test_map(self) -> None:
         def negate(x: bool) -> bool:
             return not x
         with self.subTest():
-            self.assertEqual(c.VldMap(c.VldBool(), negate).validate([]),
-                             c.ValidatorFail("No argument provided"))
+            self.assertEqual(p.Map(p.Bool(), negate).parse([]),
+                             p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(c.VldMap(c.VldBool(), negate).validate(["true"]),
-                             c.ValidatorOK(False, processed=1))
+            self.assertEqual(p.Map(p.Bool(), negate).parse(["true"]),
+                             p.ParseOK(False, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldMap(c.VldBool(), negate).validate(["false"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Map(p.Bool(), negate).parse(["false"]),
+                             p.ParseOK(True, processed=1))
 
     # def test_one_of(self) -> None:
     #     with self.subTest():
-    #         self.assertEqual(c.VldOneOf("").validate([]),
-    #                          c.ValidatorFail("No argument provided"))
+    #         self.assertEqual(p.VldOneOf("").parse([]),
+    #                          p.ValidatorFail("No argument provided"))
 
     def test_optional(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldOptional(c.VldBool()).validate([]),
-                             c.ValidatorOK(None, processed=0))
+            self.assertEqual(p.Optional_(p.Bool()).parse([]),
+                             p.ParseOK(None, processed=0))
         with self.subTest():
-            self.assertEqual(c.VldOptional(c.VldBool()).validate(["moi"]),
-                             c.ValidatorOK(None, processed=0))
+            self.assertEqual(p.Optional_(p.Bool()).parse(["moi"]),
+                             p.ParseOK(None, processed=0))
         with self.subTest():
-            self.assertEqual(c.VldOptional(c.VldBool()).validate(["true"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.Optional_(p.Bool()).parse(["true"]),
+                             p.ParseOK(True, processed=1))
 
         with self.subTest():
-            self.assertEqual(c.VldValidOrMissing(c.VldBool()).validate([]),
-                             c.ValidatorOK(None, processed=0))
+            self.assertEqual(p.ValidOrMissing(p.Bool()).parse([]),
+                             p.ParseOK(None, processed=0))
         with self.subTest():
-            self.assertEqual(c.VldValidOrMissing(c.VldBool()).validate(["moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean'))
+            self.assertEqual(p.ValidOrMissing(p.Bool()).parse(["moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean'))
         with self.subTest():
-            self.assertEqual(c.VldValidOrMissing(c.VldBool()).validate(["true"]),
-                             c.ValidatorOK(True, processed=1))
+            self.assertEqual(p.ValidOrMissing(p.Bool()).parse(["true"]),
+                             p.ParseOK(True, processed=1))
 
     def test_adjacent(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate([]),
-                             c.ValidatorFail("No argument provided while parsing first argument"))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse([]),
+                             p.ParseFail("No argument provided while parsing first argument"))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate(["moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing first argument'))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse(["moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing first argument'))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate(["moi", "1"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing first argument'))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse(["moi", "1"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing first argument'))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate(["1"]),
-                             c.ValidatorFail("No argument provided while parsing second argument"))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse(["1"]),
+                             p.ParseFail("No argument provided while parsing second argument"))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate(["1", "moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing second argument'))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse(["1", "moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing second argument'))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldBool()).validate(["1", "0"]),
-                             c.ValidatorOK((True, False), processed=2))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Bool()).parse(["1", "0"]),
+                             p.ParseOK((True, False), processed=2))
         with self.subTest():
-            self.assertEqual(c.VldAdjacent(c.VldBool(),
-                                           c.VldAdjacent(c.VldBool(),
-                                                         c.VldEmpty())).validate(["1", "0"]),
-                             c.ValidatorOK((True, (False, ())), processed=2))
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                           p.Adjacent(p.Bool(),
+                                                         p.Empty())).parse(["1", "0"]),
+                             p.ParseOK((True, (False, ())), processed=2))
 
     def test_seq(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldBool(),
-                                       c.VldBool()]).validate([]),
-                             c.ValidatorFail("No argument provided while parsing argument 1"))
+            self.assertEqual(p.Seq([p.Bool(),
+                                       p.Bool()]).parse([]),
+                             p.ParseFail("No argument provided while parsing argument 1"))
 
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldBool(),
-                                       c.VldBool()]).validate(["moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing argument 1'))
+            self.assertEqual(p.Seq([p.Bool(),
+                                       p.Bool()]).parse(["moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing argument 1'))
 
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldBool(),
-                                       c.VldBool()]).validate(["moi", "moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing argument 1'))
+            self.assertEqual(p.Seq([p.Bool(),
+                                       p.Bool()]).parse(["moi", "moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing argument 1'))
 
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldBool(),
-                                       c.VldBool()]).validate(["1", "moi"]),
-                             c.ValidatorFail('Invalid argument "moi" for boolean while parsing argument 2'))
+            self.assertEqual(p.Seq([p.Bool(),
+                                       p.Bool()]).parse(["1", "moi"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing argument 2'))
 
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldBool(),
-                                       c.VldBool()]).validate(["1", "0"]),
-                             c.ValidatorOK([True, False], processed=2))
+            self.assertEqual(p.Seq([p.Bool(),
+                                       p.Bool()]).parse(["1", "0"]),
+                             p.ParseOK([True, False], processed=2))
         with self.subTest():
-            self.assertEqual(c
-                             .VldSeq([c.VldSeq([c.VldMap(c.VldBool(), str).base(),
-                                                c.VldMap(c.VldAnyStr(), str)]),
-                                      c.VldMap[bool, List[str]](c.VldBool(), lambda x: [str(x)]),
-                                      c.VldMap[c.Empty, List[str]](c.VldEmpty(), lambda _: [])])
-                             .validate(["1", "moi", "0"]),
-                             c.ValidatorOK([["True", "moi"], ["False"], []], processed=3))
+            self.assertEqual(p
+                             .Seq([p.Seq([p.Map(p.Bool(), str).base(),
+                                                p.Map(p.AnyStr(), str)]),
+                                      p.Map[bool, List[str]](p.Bool(), lambda x: [str(x)]),
+                                      p.Map[p.EmptyVal, List[str]](p.Empty(), lambda _: [])])
+                             .parse(["1", "moi", "0"]),
+                             p.ParseOK([["True", "moi"], ["False"], []], processed=3))
 
         # this is probably more practical though less safely typed..
         with self.subTest():
-            self.assertEqual(c
-                             .VldSeq([c.VldSeq([c.VldBool().any(),
-                                                c.VldAnyStr().any()]),
-                                      c.VldBool().any(),
-                                      c.VldEmpty().any()])
-                             .validate(["1", "moi", "0"]),
-                             c.ValidatorOK([[True, "moi"], False, ()], processed=3))
+            self.assertEqual(p
+                             .Seq([p.Seq([p.Bool().any(),
+                                                p.AnyStr().any()]),
+                                      p.Bool().any(),
+                                      p.Empty().any()])
+                             .parse(["1", "moi", "0"]),
+                             p.ParseOK([[True, "moi"], False, ()], processed=3))
 
         with self.subTest():
-            self.assertEqual(c.VldTag("tag", c.VldBool())
-                             .validate([]),
-                             c.ValidatorFail("No argument provided"))
+            self.assertEqual(p.Tag("tag", p.Bool())
+                             .parse([]),
+                             p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(c.VldTag("tag", c.VldBool())
-                             .validate(["true"]),
-                             c.ValidatorOK(("tag", True), processed=1))
+            self.assertEqual(p.Tag("tag", p.Bool())
+                             .parse(["true"]),
+                             p.ParseOK(("tag", True), processed=1))
         with self.subTest():
-            self.assertEqual(c.VldSeq([c.VldTag("tag1", c.VldBool()),
-                                       c.VldTag("tag2", c.VldBool())])
-                             .validate(["true", "false"]),
-                             c.ValidatorOK([("tag1", True), ("tag2", False)], processed=2))
+            self.assertEqual(p.Seq([p.Tag("tag1", p.Bool()),
+                                       p.Tag("tag2", p.Bool())])
+                             .parse(["true", "false"]),
+                             p.ParseOK([("tag1", True), ("tag2", False)], processed=2))
         with self.subTest():
-            self.assertEqual(c.VldMapDict(c.VldSeq([c.VldTag("tag1", c.VldBool()),
-                                                    c.VldTag("tag2", c.VldBool())]))
-                             .validate(["true", "false"]),
-                             c.ValidatorOK({"tag1": True, "tag2": False}, processed=2))
+            self.assertEqual(p.MapDict(p.Seq([p.Tag("tag1", p.Bool()),
+                                                    p.Tag("tag2", p.Bool())]))
+                             .parse(["true", "false"]),
+                             p.ParseOK({"tag1": True, "tag2": False}, processed=2))
         with self.subTest():
-            self.assertEqual(c.VldMapDict(c.VldSeq([c.VldTag("tag1", c.VldBool().any()),
-                                                    c.VldTag("tag2", c.VldAnyStr().any())]))
-                             .validate(["true", "moi"]),
-                             c.ValidatorOK({"tag1": True, "tag2": "moi"}, processed=2))
+            self.assertEqual(p.MapDict(p.Seq([p.Tag("tag1", p.Bool().any()),
+                                                    p.Tag("tag2", p.AnyStr().any())]))
+                             .parse(["true", "moi"]),
+                             p.ParseOK({"tag1": True, "tag2": "moi"}, processed=2))
 
     def test_one_of(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldOneOf([c.VldTag("tag1", c.VldBool().any()),
-                                         c.VldTag("tag2", c.VldAnyStr().any())])
-                             .validate(["moi"]),
-                             c.ValidatorOK(("tag2", "moi"), processed=1))
+            self.assertEqual(p.OneOf([p.Tag("tag1", p.Bool().any()),
+                                         p.Tag("tag2", p.AnyStr().any())])
+                             .parse(["moi"]),
+                             p.ParseOK(("tag2", "moi"), processed=1))
         with self.subTest():
-            self.assertEqual(c.VldOneOf([c.VldTag("tag1", c.VldBool().any()),
-                                         c.VldTag("tag2", c.VldAnyStr().any())])
-                             .validate(["true"]),
-                             c.ValidatorOK(("tag1", True), processed=1))
+            self.assertEqual(p.OneOf([p.Tag("tag1", p.Bool().any()),
+                                         p.Tag("tag2", p.AnyStr().any())])
+                             .parse(["true"]),
+                             p.ParseOK(("tag1", True), processed=1))
         with self.subTest():
-            self.assertEqual(c.VldOneOfStrings(["moi", "hei"])
-                             .validate(["true"]),
-                             c.ValidatorFail("Expected one of moi, hei"))
+            self.assertEqual(p.OneOfStrings(["moi", "hei"])
+                             .parse(["true"]),
+                             p.ParseFail("Expected one of moi, hei"))
         with self.subTest():
-            self.assertEqual(c.VldOneOfStrings(["moi", "hei"])
-                             .validate(["moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            self.assertEqual(p.OneOfStrings(["moi", "hei"])
+                             .parse(["moi"]),
+                             p.ParseOK("moi", processed=1))
         with self.subTest():
-            self.assertEqual(c.VldOneOfStrings(["moi", "hei"])
-                             .validate(["hei"]),
-                             c.ValidatorOK("hei", processed=1))
+            self.assertEqual(p.OneOfStrings(["moi", "hei"])
+                             .parse(["hei"]),
+                             p.ParseOK("hei", processed=1))
 
     def test_map_dict(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldMapDict(c.VldSomeOf([c.VldTag("tag1", c.VldBool().any()),
-                                                       c.VldTag("tag2", c.VldAnyStr().any())]))
-                             .validate(["moi"]),
-                             c.ValidatorOK({"tag2": "moi"}, processed=1))
+            self.assertEqual(p.MapDict(p.SomeOf([p.Tag("tag1", p.Bool().any()),
+                                                       p.Tag("tag2", p.AnyStr().any())]))
+                             .parse(["moi"]),
+                             p.ParseOK({"tag2": "moi"}, processed=1))
         with self.subTest():
-            self.assertEqual(c.VldMapDict(c.VldSomeOf([c.VldTag("tag1", c.VldBool().any()),
-                                                       c.VldTag("tag2", c.VldAnyStr().any())]))
-                             .validate(["true", "moi"]),
-                             c.ValidatorOK({"tag1": True, "tag2": "moi"}, processed=2))
+            self.assertEqual(p.MapDict(p.SomeOf([p.Tag("tag1", p.Bool().any()),
+                                                       p.Tag("tag2", p.AnyStr().any())]))
+                             .parse(["true", "moi"]),
+                             p.ParseOK({"tag1": True, "tag2": "moi"}, processed=2))
 
     def test_lambda(self) -> None:
         with self.subTest():
-            def fixed() -> c.Validator[str]:
-                return c.VldFixedStr("moi")
-            self.assertEqual(c.VldDelayed(fixed).validate(["moi"]),
-                             c.ValidatorOK("moi", processed=1))
+            def fixed() -> p.Parser[str]:
+                return p.FixedStr("moi")
+            self.assertEqual(p.Delayed(fixed).parse(["moi"]),
+                             p.ParseOK("moi", processed=1))
 
     def test_hhmm(self) -> None:
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate([]),
-                             c.ValidatorFail("No argument provided"))
+            self.assertEqual(p.HourMinute().parse([]),
+                             p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate([":00"]),
-                             c.ValidatorFail("Failed to parse hh:mm"))
+            self.assertEqual(p.HourMinute().parse([":00"]),
+                             p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate(["0:0"]),
-                             c.ValidatorFail("Failed to parse hh:mm"))
+            self.assertEqual(p.HourMinute().parse(["0:0"]),
+                             p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate(["00:00"]),
-                             c.ValidatorOK((00, 00), processed=1))
+            self.assertEqual(p.HourMinute().parse(["00:00"]),
+                             p.ParseOK((00, 00), processed=1))
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate(["24:00"]),
-                             c.ValidatorFail("Hour cannot be >23"))
+            self.assertEqual(p.HourMinute().parse(["24:00"]),
+                             p.ParseFail("Hour cannot be >23"))
         with self.subTest():
-            self.assertEqual(c.VldHourMinute().validate(["00:70"]),
-                             c.ValidatorFail("Minute cannot be >59"))
+            self.assertEqual(p.HourMinute().parse(["00:70"]),
+                             p.ParseFail("Minute cannot be >59"))
