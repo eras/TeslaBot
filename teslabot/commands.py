@@ -184,6 +184,34 @@ class VldValidOrMissing(Validator[Optional[T]]):
                 assert isinstance(result, ValidatorFail)
                 return ValidatorFail(result.message)
 
+class VldCapture(Validator[Tuple[List[str], T]]):
+    validator: Validator[T]
+
+    def __init__(self, validator: Validator[T]) -> None:
+        self.validator = validator
+
+    def validate(self, args: List[str]) -> ValidatorResult[Tuple[List[str], T]]:
+        result = self.validator.validate(args)
+        if isinstance(result, ValidatorOK):
+            return ValidatorOK((args[0:result.processed], result.value), processed=result.processed)
+        else:
+            assert isinstance(result, ValidatorFail)
+            return result
+
+class VldCaptureOnly(Validator[List[str]]):
+    validator: Validator[Any]
+
+    def __init__(self, validator: Validator[Any]) -> None:
+        self.validator = validator
+
+    def validate(self, args: List[str]) -> ValidatorResult[List[str]]:
+        result = self.validator.validate(args)
+        if isinstance(result, ValidatorOK):
+            return ValidatorOK(args[0:result.processed], processed=result.processed)
+        else:
+            assert isinstance(result, ValidatorFail)
+            return result
+
 class VldMap(Generic[T1, T2], Validator[T2]):
     validator: Validator[T1]
     map: List[Callable[[T1], T2]]

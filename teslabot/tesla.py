@@ -1,7 +1,11 @@
 import asyncio
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Generic, Callable, Awaitable, cast, Any, Union
 import re
 import datetime
+from configparser import ConfigParser
+from dataclasses import dataclass
+import traceback
+import json
 
 import teslapy
 from urllib.error import HTTPError
@@ -10,12 +14,13 @@ from .control import Control, ControlCallback, CommandContext, MessageContext
 from .commands import Invocation
 from . import log
 from .config import Config
+from .state import State, StateElement
 from . import commands
 from .utils import assert_some
 from . import scheduler
+from .env import Env
 
 logger = log.getLogger(__name__)
-logger.setLevel(log.DEBUG)
 
 class AppException(Exception):
     pass
@@ -38,29 +43,107 @@ class ValidVehicle(commands.VldDelayed[str]):
         display_names = [vehicle["display_name"] for vehicle in vehicles]
         return commands.VldOneOfStrings(display_names)
 
+@dataclass
+class AppTimerInfo:
+    id: int
+    command: List[str]
+    def json(self) -> Any:
+        # don't serialize id, as it will be the key
+        return {"command": self.command}
+
+    @staticmethod
+    def from_json(id: int, json: Any) -> "AppTimerInfo":
+        return AppTimerInfo(id=id,
+                            command=json["command"])
+
+class AppTimerInfoBase:
+    info: AppTimerInfo
+
+    def __init__(self, info: AppTimerInfo) -> None:
+        self.info = info
+
+    def json(self) -> Any:
+        return {"info": self.info.json()}
+
+class AppOneShot(scheduler.OneShot, AppTimerInfoBase):
+    def __init__(self,
+                 callback: Callable[[], Awaitable[None]],
+                 time: datetime.datetime,
+                 info: AppTimerInfo) -> None:
+        scheduler.OneShot.__init__(self, callback, time)
+        AppTimerInfoBase.__init__(self, info)
+
+    def json(self) -> Any:
+        base = AppTimerInfoBase.json(self)
+        base["time"] = self.time.isoformat()
+        return base
+
+    @staticmethod
+    def from_json(id: int, json: Any, callback: Callable[[scheduler.Entry], Awaitable[None]]) -> scheduler.Entry:
+        async def indirect_callback() -> None:
+            await callback(entry)
+        entry = AppOneShot(callback=indirect_callback,
+                           time=datetime.datetime.fromisoformat(json["time"]),
+                           info=AppTimerInfo.from_json(id, json["info"]))
+        return entry
+
+class AppState(StateElement):
+    app: "App"
+
+    def __init__(self, app: "App") -> None:
+        self.app = app
+
+    async def save(self, state: ConfigParser) -> None:
+        entries = await self.app._scheduler.get_entries()
+        if not "tesla.timers" in state:
+            state["tesla.timers"] = {}
+        timers = state["tesla.timers"]
+        timers.clear()
+        for entry in entries:
+            if isinstance(entry, AppOneShot):
+                timers[str(entry.info.id)] = json.dumps(entry.json())
+
+ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
+def valid_climate(app: "App") -> commands.Validator[ClimateArgs]:
+    return commands.VldAdjacent(commands.VldAdjacent(commands.VldBool(), commands.VldValidOrMissing(ValidVehicle(app.tesla))),
+                                commands.VldEmpty())
+
+SchedulableType = List[str]
+def valid_schedulable(app: "App") -> commands.Validator[SchedulableType]:
+    return commands.VldCaptureOnly(commands.VldAdjacent(commands.VldFixedStr("climate"), valid_climate(app)))
+
 class App(ControlCallback):
     control: Control
     config: Config
+    state: State
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
     _scheduler: scheduler.Scheduler
+    _scheduler_id: int
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
         self.config = env.config
+        self.state = env.state
+        self.state.add_element(AppState(self))
         control.callback = self
         self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
+        self._scheduler_id = 1
         c = commands
         self._commands = c.Commands()
-        valid_climate = c.VldAdjacent(c.VldBool(), c.VldValidOrMissing(ValidVehicle(self.tesla)))
         self._commands.register(c.Function("authorize", c.VldAnyStr(), self._command_authorized))
         self._commands.register(c.Function("vehicles", c.VldEmpty(), self._command_vehicles))
-        self._commands.register(c.Function("climate", valid_climate, self._command_climate))
+        self._commands.register(c.Function("climate", valid_climate(self), self._command_climate))
         self._commands.register(c.Function("info", c.VldValidOrMissing(ValidVehicle(self.tesla)), self._command_info))
-        self._commands.register(c.Function("at", c.VldAdjacent(c.VldHourMinute(),
-                                                               c.VldAdjacent(c.VldFixedStr("climate"),
-                                                                             valid_climate)), self._command_at))
+        self._commands.register(c.Function("at", c.VldAdjacent(c.VldHourMinute(), valid_schedulable(self)), self._command_at))
+        self._commands.register(c.Function("rm", c.VldInt(), self._command_rm))
+        self._commands.register(c.Function("ls", c.VldEmpty(), self._command_ls))
+
+    def _next_scheduler_id(self) -> int:
+        id = self._scheduler_id
+        self._scheduler_id += 1
+        return id
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -77,7 +160,7 @@ class App(ControlCallback):
             except Exception as exn:
                 logger.error(str(exn))
                 await self.control.send_message(command_context.to_message_context(),
-                                                f"Exception: {exn}")
+                                                f"Exception: {traceback.format_exc()}")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
 
@@ -89,6 +172,19 @@ class App(ControlCallback):
             self.tesla.fetch_token(authorization_response=authorization_response)
             vehicles = self.tesla.vehicle_list()
             await self.control.send_message(context.to_message_context(), str(vehicles[0]))
+
+    async def _command_ls(self, context: CommandContext, valid: Tuple[()]) -> None:
+        entries = await self._scheduler.get_entries()
+        if entries:
+            result: List[str] = []
+            for entry in entries:
+                if isinstance(entry, AppOneShot):
+                    info = entry.info
+                    result.append(f"{info.id} {entry.time}: {' '.join(info.command)}")
+            result_lines = "\n".join(result)
+            await self.control.send_message(context.to_message_context(), f"Timers:\n{result_lines}")
+        else:
+            await self.control.send_message(context.to_message_context(), f"No timers set.")
 
     async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
         vehicles = self.tesla.vehicle_list()
@@ -113,28 +209,66 @@ class App(ControlCallback):
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
+    async def _command_rm(self, context: CommandContext,
+                          id: int) -> None:
+        def matches(entry: scheduler.Entry) -> bool:
+            if isinstance(entry, AppTimerInfoBase):
+                logger.debug(f"Comparing {entry.info.id} vs {id}")
+                return entry.info.id == id
+            else:
+                return False
+        async def remove_entry(entries: List[scheduler.Entry]) -> Tuple[List[scheduler.Entry], bool]:
+            new_entries = [entry for entry in entries if not matches(entry)]
+            logger.debug(f"remove_entry: {entries} -> {new_entries}")
+            return new_entries, len(new_entries) != len(entries)
+        changed = await self._scheduler.with_entries(remove_entry)
+        if changed:
+            await self.state.save()
+            await self.control.send_message(context.to_message_context(),
+                                            f"Removed timer")
+        else:
+            await self.control.send_message(context.to_message_context(),
+                                            f"No timers matched")
+
+    async def _load_state(self) -> None:
+        if not self.state.state.has_section("tesla.timers"):
+            return
+        for id, timer in self.state.state["tesla.timers"].items():
+            self._scheduler_id = max(self._scheduler_id, int(id) + 1)
+            entry = AppOneShot.from_json(int(id), json.loads(timer), callback=self._activate_timer)
+            await self._scheduler.add(entry)
+
+    async def _activate_timer(self, entry: scheduler.Entry) -> None:
+        if isinstance(entry, AppOneShot):
+            command = entry.info.command
+            logger.info(f"Timer {entry.info.id} activated")
+            await self._scheduler.remove(entry)
+            await self.state.save()
+            context = CommandContext(admin_room=False)
+            await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
+            invocation = commands.Invocation(name=command[0], args=command[1:])
+            await self._commands.invoke(context, invocation)
+            await self._command_ls(context, ())
+        else:
+            logger.info(f"Unknown timer {entry} activated..")
+
     async def _command_at(self, context: CommandContext,
-                          args: Tuple[Tuple[int, int],
-                                      Tuple[str, Tuple[bool, Optional[str]]]]) -> None:
+                          args: Tuple[Tuple[int, int], SchedulableType]) -> None:
         hhmm, command = args
-        climate, climate_args = command
 
         async def callback() -> None:
-            logger.info("Timer activated")
-            logger.debug(f"now={datetime.datetime.now()}, requested={time}")
-            await self._scheduler.remove(entry)
-            await self.control.send_message(MessageContext(admin_room=False),
-                                            f"Timer activated")
-            await self._command_climate(context, climate_args)
+            await self._activate_timer(entry)
         time_of_day = datetime.time(hhmm[0], hhmm[1])
         date = datetime.date.today()
         time = datetime.datetime.combine(date, time_of_day)
         while time < datetime.datetime.now():
             time += datetime.timedelta(days=1)
-        entry = scheduler.OneShot(callback, time)
+        scheduler_id = self._next_scheduler_id()
+        entry = AppOneShot(callback, time, AppTimerInfo(id=scheduler_id, command=command))
         await self._scheduler.add(entry)
-        await self.control.send_message(MessageContext(admin_room=False),
-                                        f"Scheduled at {time}")
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})")
 
     async def _command_info(self, context: CommandContext, vehicle_name: Optional[str]) -> None:
         vehicle = await self._get_vehicle(vehicle_name)
@@ -171,8 +305,8 @@ class App(ControlCallback):
             await self.control.send_message(context.to_message_context(), str(exn))
 
 
-    async def _command_climate(self, context: CommandContext, args: Tuple[bool, Optional[str]]) -> None:
-        mode, vehicle_name = args
+    async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
+        (mode, vehicle_name), _ = args
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         num_retries = 0
@@ -204,6 +338,7 @@ class App(ControlCallback):
 
     async def run(self) -> None:
         await self._scheduler.start()
+        await self._load_state()
         await self.control.send_message(MessageContext(admin_room=False), "TeslaBot started")
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
