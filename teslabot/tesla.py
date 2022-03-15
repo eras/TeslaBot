@@ -304,7 +304,7 @@ class App(ControlCallback):
             odometer            = int(data["vehicle_state"]["odometer"])
             inside_temp         = data["climate_state"]["inside_temp"]
             outside_temp        = data["climate_state"]["outside_temp"]
-            message = ""
+            message = f"{vehicle['display_name']}\n"
             message += f"Heading: {heading} Lat: {lat} Lon: {lon} Speed: {speed}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
