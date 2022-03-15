@@ -172,7 +172,9 @@ class MatrixControl(control.Control):
                 except commands.InvocationParseError:
                     logger.error(f"Failed to parse command: {event.body[1:]}")
         else:
-            self._pending_event_handlers.append(lambda: self._message_callback(room, event))
+            # actually, let's just dump these messages
+            # self._pending_event_handlers.append(lambda: self._message_callback(room, event))
+            pass
 
     async def _sync_callback(self, response: SyncResponse) -> None:
         self._sync_token = response.next_batch
