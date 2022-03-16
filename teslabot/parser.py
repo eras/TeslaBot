@@ -1,6 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union
+from typing_extensions import Protocol
 
 Parsed = TypeVar("Parsed")
 T = TypeVar("T")
@@ -164,6 +165,28 @@ class ValidOrMissing(Parser[Optional[T]]):
                 assert isinstance(result, ParseFail)
                 return ParseFail(result.message)
 
+CT = TypeVar('CT', contravariant=True)
+
+class CallbackProtocol(Generic[CT], Protocol):
+    def __call__(self, args: CT) -> None:
+        pass
+
+class Callback(Generic[T], Parser[Callable[[], None]]):
+    parser: Parser[T]
+
+    def __init__(self, callback: CallbackProtocol[T], parser: Parser[T]) -> None:
+        self.parser = parser
+        self.callback = callback
+
+    def parse(self, args: List[str]) -> ParseResult[Callable[[], None]]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            # mypy is confused about result.value?!
+            return ParseOK(lambda: self.callback(result.value), processed=result.processed) # type: ignore
+        else:
+            assert isinstance(result, ParseFail)
+            return ParseFail(message=result.message)
+
 class Capture(Parser[Tuple[List[str], T]]):
     parser: Parser[T]
 
@@ -176,7 +199,7 @@ class Capture(Parser[Tuple[List[str], T]]):
             return ParseOK((args[0:result.processed], result.value), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
-            return result
+            return ParseFail(message=result.message)
 
 class CaptureOnly(Parser[List[str]]):
     parser: Parser[Any]
