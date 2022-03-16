@@ -254,7 +254,7 @@ class App(ControlCallback):
             logger.info(f"Timer {entry.info.id} activated")
             await self._scheduler.remove(entry)
             await self.state.save()
-            context = CommandContext(admin_room=False)
+            context = CommandContext(admin_room=False, control=self.control)
             await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
             invocation = commands.Invocation(name=command[0], args=command[1:])
             await self._commands.invoke(context, invocation)

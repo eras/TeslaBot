@@ -7,6 +7,7 @@ from . import parser
 @dataclass
 class CommandContext:
     admin_room: bool
+    control: "Control"
     def to_message_context(self) -> "MessageContext":
         return MessageContext(admin_room=self.admin_room)
 

@@ -144,7 +144,8 @@ class SlackControl(control.Control):
                             if text is not None and text[0] == "!":
                                 logger.info(f"< {text}")
                                 invocation = commands.Invocation.parse(text[1:])
-                                command_context = CommandContext(admin_room=False)
+                                command_context = CommandContext(admin_room=False,
+                                                                 control=self)
                                 if self.local_commands.has_command(invocation.name):
                                     await self.local_commands.invoke(command_context, invocation)
                                 else:

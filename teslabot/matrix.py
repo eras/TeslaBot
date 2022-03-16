@@ -158,7 +158,7 @@ class MatrixControl(control.Control):
                 admin_room = room.room_id == self._admin_room_id
                 try:
                     invocation = commands.Invocation.parse(event.body[1:])
-                    command_context = CommandContext(admin_room=admin_room)
+                    command_context = CommandContext(admin_room=admin_room, control=self)
                     if self.local_commands.has_command(invocation.name):
                         await self.local_commands.invoke(command_context, invocation)
                     else:
