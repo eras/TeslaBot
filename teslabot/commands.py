@@ -1,8 +1,8 @@
 import re
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union
-from .parser import Parser, ParseOK
+from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Awaitable
+from .parser import Parser, ParseResult, ParseOK, ParseFail
 
 Context = TypeVar("Context")
 T = TypeVar("T")
@@ -60,6 +60,23 @@ class Function(Command[Context], Generic[Context, Parsed]):
     def parse(self, context: Context, invocation: Invocation) -> bool:
         return self.parser(invocation.args) is not None
 
+class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None]]]):
+    commands: "Commands[Context]"
+
+    def __init__(self, commands: "Commands[Context]") -> None:
+        self.commands = commands
+
+    def parse(self, args: List[str]) -> ParseResult[Callable[[Context], Awaitable[None]]]:
+        if len(args) == 0:
+            return ParseFail("No command name")
+        invocation = Invocation(args[0], args[1:])
+        if self.commands.has_command(invocation.name):
+            async def invoke(context: Context) -> None:
+                await self.commands.invoke(context, invocation)
+            return ParseOK(invoke, processed=len(args))
+        else:
+            return ParseFail(f"No such command: {invocation.name}")
+
 class Commands(Generic[Context]):
     _commands: List[Command[Context]]
 
@@ -81,3 +98,6 @@ class Commands(Generic[Context]):
         for command in self._commands:
             if command.name == invocation.name:
                 await command.invoke(context, invocation)
+
+    def parser(self) -> CommandsParser[Context]:
+        return CommandsParser(self)
