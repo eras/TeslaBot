@@ -20,6 +20,7 @@ from . import parser as p
 from .utils import assert_some
 from . import scheduler
 from .env import Env
+from .locations import Location, Locations, LocationArgsParser
 
 logger = log.getLogger(__name__)
 
@@ -114,13 +115,17 @@ def valid_info(app: "App") -> p.Parser[InfoArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
 
-SchedulableType = List[str]
-def valid_schedulable(app: "App") -> p.Parser[SchedulableType]:
+CommandWithArgs = List[str]
+def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     cmds = [
         p.Adjacent(p.FixedStr("climate"), valid_climate(app)).any(),
         p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
     ]
     return p.CaptureOnly(p.OneOf(cmds))
+
+def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
+    cmd_parsers = [p.Adjacent(p.FixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
+    return p.CaptureOnly(p.OneOf(cmd_parsers))
 
 class App(ControlCallback):
     control: Control
@@ -130,12 +135,14 @@ class App(ControlCallback):
     _commands: commands.Commands[CommandContext]
     _scheduler: scheduler.Scheduler
     _scheduler_id: int
+    locations: Locations
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
         self.config = env.config
         self.state = env.state
         self.state.add_element(AppState(self))
+        self.locations = Locations(self.state)
         control.callback = self
         self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
@@ -149,6 +156,7 @@ class App(ControlCallback):
         self._commands.register(c.Function("at", p.Adjacent(p.HourMinute(), valid_schedulable(self)), self._command_at))
         self._commands.register(c.Function("rm", p.Int(), self._command_rm))
         self._commands.register(c.Function("ls", p.Empty(), self._command_ls))
+        self._commands.register(c.Function("location", LocationArgsParser(self.locations), self.locations.command))
 
     def _next_scheduler_id(self) -> int:
         id = self._scheduler_id
@@ -263,7 +271,7 @@ class App(ControlCallback):
             logger.info(f"Unknown timer {entry} activated..")
 
     async def _command_at(self, context: CommandContext,
-                          args: Tuple[Tuple[int, int], SchedulableType]) -> None:
+                          args: Tuple[Tuple[int, int], CommandWithArgs]) -> None:
         hhmm, command = args
 
         async def callback() -> None:
