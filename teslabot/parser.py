@@ -333,7 +333,7 @@ class OneOfStrings(Parser[str]):
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided")
-        if [str.lower() for str in self.strings].count(args[0]):
+        if [str.lower() for str in self.strings].count(args[0].lower()):
             return ParseOK(args[0], processed=1)
         else:
             valid_values = ", ".join(self.strings)
