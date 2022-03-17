@@ -78,6 +78,12 @@ class AnyStr(Parser[str]):
             return ParseFail("No argument provided")
         return ParseOK(args[0], processed=1)
 
+class RestAsStr(Parser[str]):
+    def parse(self, args: List[str]) -> ParseResult[str]:
+        if len(args) == 0:
+            return ParseFail("No argument provided")
+        return ParseOK(" ".join(args), processed=len(args))
+
 class FixedStr(Parser[str]):
     fixed_string: str
 

@@ -65,7 +65,7 @@ class Location:
 LocationAddArgsValue = \
     p.Adjacent(p.Adjacent(p.Adjacent(p.AnyStr(),
                                      p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)$", [1, 3])),
-                          p.ValidOrMissing(p.AnyStr())),
+                          p.ValidOrMissing(p.RestAsStr())),
                p.Empty())
 LocationAddArgs = Tuple[Tuple[Tuple[str, Tuple[str, ...]], Optional[str]], Tuple[()]]
 
