@@ -107,7 +107,7 @@ class Regex(Parser[Tuple[str, ...]]):
         if match:
             return ParseOK(match.group(*self.groups), processed=1)
         else:
-            return ParseFail(f"Failed to match regex {self.regex}")
+            return ParseFail(f"Failed to match regex {self.regex} with {args[0]}")
 
 class Int(Parser[int]):
     parser: Regex
