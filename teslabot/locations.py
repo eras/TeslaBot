@@ -28,13 +28,16 @@ class NoSuchLocationError(LocationsException):
 class Location:
     lat: float
     lon: float
-    address: Optional[str]
+    address: Optional[str] = None
 
     def json(self) -> Any:
         js: Dict[str, Union[str, float]] = {"lat": self.lat, "lon": self.lon}
         if self.address is not None:
             js["address"] = self.address
         return js
+
+    def __str__(self) -> str:
+        return f"Lat={self.lat} Lon={self.lon}"
 
     @staticmethod
     def from_json(json: Any) -> "Location":
@@ -183,10 +186,11 @@ class Locations(StateElement):
         del self.canonical_names[canonical]
         await self.state.save()
 
-    def nearest_location(self, location: Location) -> Optional[Tuple[str, Location, float]]:
+    def nearest_location(self, location: Location) -> Tuple[Optional[str], Optional[Location]]:
+        # The return type is just more practical on Python this way.. At least before Python 3.9.
         nearest: Optional[Tuple[str, Location, float]] = None
         for name, loc_candidate in self.locations.items():
             if not nearest or loc_candidate.km_to(location) < nearest[2]:
                 nearest = (name, loc_candidate, loc_candidate.km_to(location))
 
-        return nearest
+        return (nearest[0], nearest[1]) if nearest else (None, None)

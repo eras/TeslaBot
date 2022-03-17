@@ -6,6 +6,7 @@ from configparser import ConfigParser
 from dataclasses import dataclass
 import traceback
 import json
+from enum import Enum
 
 import teslapy
 from urllib.error import HTTPError
@@ -23,6 +24,8 @@ from .env import Env
 from .locations import Location, Locations, LocationArgsParser
 
 logger = log.getLogger(__name__)
+
+DISTANCE_THRESHOLD_KM = 0.5
 
 class AppException(Exception):
     pass
@@ -89,6 +92,12 @@ class AppOneShot(scheduler.OneShot, AppTimerInfoBase):
                            info=AppTimerInfo.from_json(id, json["info"]))
         return entry
 
+class LocationDetail(Enum):
+    Full = "full"       # show precise location information
+    Near = "near"       # show precise location is near some predefined location
+    At = "at"           # show only if location is near some predefined location
+    Nearest = "nearest" # show distance to the nearest location
+
 class AppState(StateElement):
     app: "App"
 
@@ -104,6 +113,9 @@ class AppState(StateElement):
         for entry in entries:
             if isinstance(entry, AppOneShot):
                 timers[str(entry.info.id)] = json.dumps(entry.json())
+        if not "tesla" in state:
+            state["tesla"] = {}
+        state["tesla"]["location_detail"] = self.app.location_detail.value
 
 ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
 def valid_climate(app: "App") -> p.Parser[ClimateArgs]:
@@ -123,6 +135,10 @@ def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     ]
     return p.CaptureOnly(p.OneOf(cmds))
 
+SetArgs = Callable[[CommandContext], Awaitable[None]]
+def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
+    return app._set_commands.parser()
+
 def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
     cmd_parsers = [p.Adjacent(p.FixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(cmd_parsers))
@@ -133,9 +149,11 @@ class App(ControlCallback):
     state: State
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
+    _set_commands: commands.Commands[CommandContext]
     _scheduler: scheduler.Scheduler
     _scheduler_id: int
     locations: Locations
+    location_detail: LocationDetail
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
@@ -143,6 +161,7 @@ class App(ControlCallback):
         self.state = env.state
         self.state.add_element(AppState(self))
         self.locations = Locations(self.state)
+        self.location_detail = LocationDetail.Full
         control.callback = self
         self._scheduler = scheduler.Scheduler()
         self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
@@ -157,6 +176,11 @@ class App(ControlCallback):
         self._commands.register(c.Function("rm", p.Int(), self._command_rm))
         self._commands.register(c.Function("ls", p.Empty(), self._command_ls))
         self._commands.register(c.Function("location", LocationArgsParser(self.locations), self.locations.command))
+
+        self._set_commands = c.Commands()
+        self._set_commands.register(c.Function("location-detail", p.OneOfEnumValue(LocationDetail), self._command_set_location_detail))
+
+        self._commands.register(c.Function("set", SetArgsParser(self), self._command_set))
 
     def _next_scheduler_id(self) -> int:
         id = self._scheduler_id
@@ -181,6 +205,15 @@ class App(ControlCallback):
                                                 f"Exception: {traceback.format_exc()}")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
+
+    async def _command_set(self, context: CommandContext, args: SetArgs) -> None:
+        await args(context)
+
+    async def _command_set_location_detail(self, context: CommandContext, args: LocationDetail) -> None:
+        self.location_detail = args
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        "Location detail set to {self.location_detail.value}")
 
     async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
         if not context.admin_room:
@@ -249,12 +282,15 @@ class App(ControlCallback):
                                             f"No timers matched")
 
     async def _load_state(self) -> None:
-        if not self.state.state.has_section("tesla.timers"):
-            return
-        for id, timer in self.state.state["tesla.timers"].items():
-            self._scheduler_id = max(self._scheduler_id, int(id) + 1)
-            entry = AppOneShot.from_json(int(id), json.loads(timer), callback=self._activate_timer)
-            await self._scheduler.add(entry)
+        if self.state.state.has_section("tesla.timers"):
+            for id, timer in self.state.state["tesla.timers"].items():
+                self._scheduler_id = max(self._scheduler_id, int(id) + 1)
+                entry = AppOneShot.from_json(int(id), json.loads(timer), callback=self._activate_timer)
+                await self._scheduler.add(entry)
+        if self.state.state.has_section("tesla"):
+            location_detail_value = self.state.state.get("tesla", "location_detail", fallback=LocationDetail.Full.value)
+            matching_location_details = [enum for enum in LocationDetail.__members__.values() if enum.value == location_detail_value]
+            self.location_detail = matching_location_details[0]
 
     async def _activate_timer(self, entry: scheduler.Entry) -> None:
         if isinstance(entry, AppOneShot):
@@ -288,6 +324,39 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})")
 
+    def format_location(self, location: Location) -> str:
+        nearest_name, nearest = self.locations.nearest_location(location)
+        near = nearest and location.km_to(nearest) < DISTANCE_THRESHOLD_KM
+        if self.location_detail == LocationDetail.Full:
+            # show precise location information
+            st = f"{location}"
+            if nearest_name is not None:
+                st += "near {nearest_name}"
+            return st
+        else:
+            if self.location_detail == LocationDetail.Near:
+                # show precise location is near some predefined location
+                if near:
+                    return f"{location} near {nearest_name}"
+                else:
+                    return f""
+            elif self.location_detail == LocationDetail.At:
+                # show only if location is near some predefined location
+                if near:
+                    return f"near {nearest_name}"
+                else:
+                    return ""
+            elif self.location_detail == LocationDetail.Nearest:
+                # show distance to the nearest location
+                if nearest:
+                    assert nearest
+                    return f"{nearest.km_to(location)}km to {nearest_name}"
+                else:
+                    return f""
+            else:
+                assert False
+
+
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
         vehicle_name, _ = args
         vehicle = await self._get_vehicle(vehicle_name)
@@ -313,8 +382,8 @@ class App(ControlCallback):
             inside_temp         = data["climate_state"]["inside_temp"]
             outside_temp        = data["climate_state"]["outside_temp"]
             message = f"{vehicle['display_name']}\n"
-            message += f"Heading: {heading} Lat: {lat} Lon: {lon} Speed: {speed}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
+            message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + " Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to full: {time_to_full_charge}h\n"
             message += f"Odometer: {odometer} {dist_unit}"
