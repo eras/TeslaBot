@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import traceback
 import json
 from enum import Enum
+import math
 
 import teslapy
 from urllib.error import HTTPError
@@ -142,6 +143,11 @@ def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
 def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
     cmd_parsers = [p.Adjacent(p.FixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(cmd_parsers))
+
+def format_hours(hours: float) -> str:
+    h = math.floor(hours)
+    m = math.floor((hours % 1.0) * 60.0)
+    return f"{h}h{m}m"
 
 class App(ControlCallback):
     control: Control
@@ -385,7 +391,7 @@ class App(ControlCallback):
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
-            message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to full: {time_to_full_charge}h\n"
+            message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to limit: {format_hours(time_to_full_charge)}\n"
             message += f"Odometer: {odometer} {dist_unit}"
             await self.control.send_message(context.to_message_context(),
                                             message)
