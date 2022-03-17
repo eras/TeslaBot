@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 from typing import List, TypeVar, Optional, Tuple
+from enum import Enum
 
 import teslabot.commands as c
 import teslabot.parser as p
@@ -272,6 +273,28 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(p.OneOfStrings(["moi", "hei"])
                              .parse(["hei"]),
                              p.ParseOK("hei", processed=1))
+
+    def test_one_of_enum(self) -> None:
+        class Test(Enum):
+            a = "Hello"
+            b = "world"
+
+        with self.subTest():
+            self.assertEqual(p.OneOfEnumValue(Test).parse([]),
+                             p.ParseFail("No argument provided"))
+        with self.subTest():
+            self.assertEqual(p.OneOfEnumValue(Test).parse(["not"]),
+                             p.ParseFail("Expected one of Hello, world"))
+        with self.subTest():
+            self.assertEqual(p.OneOfEnumValue(Test).parse(["Hello"]),
+                             p.ParseOK(Test.a, processed=1))
+        with self.subTest():
+            self.assertEqual(p.OneOfEnumValue(Test).parse(["hello"]),
+                             p.ParseOK(Test.a, processed=1))
+        with self.subTest():
+            self.assertEqual(p.OneOfEnumValue(Test).parse(["world"]),
+                             p.ParseOK(Test.b, processed=1))
+
 
     def test_map_dict(self) -> None:
         with self.subTest():

@@ -1,7 +1,8 @@
 import re
 from abc import ABC, abstractmethod
-from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union
+from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type
 from typing_extensions import Protocol
+from enum import Enum
 
 Parsed = TypeVar("Parsed")
 T = TypeVar("T")
@@ -336,6 +337,26 @@ class OneOfStrings(Parser[str]):
             return ParseOK(args[0], processed=1)
         else:
             valid_values = ", ".join(self.strings)
+            return ParseFail(f"Expected one of {valid_values}")
+
+TEnum = TypeVar('TEnum', bound=Enum)
+
+class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
+    enum: Type[TEnum]
+
+    def __init__(self, enum: Type[TEnum]) -> None:
+        self.enum = enum
+
+    def parse(self, args: List[str]) -> ParseResult[TEnum]:
+        if len(args) == 0:
+            return ParseFail("No argument provided")
+        values = [enum for enum in self.enum.__members__.values()
+                  if enum.value.lower() == args[0].lower()]
+        if values:
+            return ParseOK(values[0], processed=1)
+        else:
+            strings = [enum.value for enum in self.enum.__members__.values()]
+            valid_values = ", ".join(strings)
             return ParseFail(f"Expected one of {valid_values}")
 
 class Delayed(Parser[T]):
