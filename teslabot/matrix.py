@@ -172,7 +172,7 @@ class MatrixControl(control.Control):
 
     async def _sync_callback(self, response: SyncResponse) -> None:
         self._sync_token = response.next_batch
-        self._state.save()
+        await self._state.save()
 
     def trust_devices(self, user_id: str, device_list: Optional[str] = None) -> None:
         # https://matrix-nio.readthedocs.io/en/latest/examples.html?highlight=invite#manual-encryption-key-verification

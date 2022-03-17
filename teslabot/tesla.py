@@ -213,7 +213,7 @@ class App(ControlCallback):
         self.location_detail = args
         await self.state.save()
         await self.control.send_message(context.to_message_context(),
-                                        "Location detail set to {self.location_detail.value}")
+                                        f"Location detail set to {self.location_detail.value}")
 
     async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
         if not context.admin_room:
@@ -383,7 +383,7 @@ class App(ControlCallback):
             outside_temp        = data["climate_state"]["outside_temp"]
             message = f"{vehicle['display_name']}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
-            message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + " Speed: {speed}\n"
+            message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to full: {time_to_full_charge}h\n"
             message += f"Odometer: {odometer} {dist_unit}"
