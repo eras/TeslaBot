@@ -408,7 +408,7 @@ class HourMinute(Parser[Tuple[int, int]]):
     regex: Regex
 
     def __init__(self) -> None:
-        self.regex = Regex(r"^([0-9]{1,2}):([0-9]{2})$", [1, 2])
+        self.regex = Regex(r"^([0-9]{1,2}):?([0-9]{2})$", [1, 2])
 
     def parse(self, args: List[str]) -> ParseResult[Tuple[int, int]]:
         if len(args) == 0:
