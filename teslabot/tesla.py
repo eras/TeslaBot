@@ -208,9 +208,9 @@ class App(ControlCallback):
             except commands.CommandsException as exn:
                 raise exn
             except Exception as exn:
-                logger.error(str(exn))
+                logger.error(f"{command_context.txn} {exn}")
                 await self.control.send_message(command_context.to_message_context(),
-                                                f"Exception: {traceback.format_exc()}")
+                                                f"{command_context.txn} Exception :(")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
 
