@@ -1,5 +1,6 @@
+import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple
 from . import commands
 from . import parser
@@ -8,6 +9,7 @@ from . import parser
 class CommandContext:
     admin_room: bool
     control: "Control"
+    txn: str = field(default_factory=lambda: f"txn {str(uuid.uuid4())}")
     def to_message_context(self) -> "MessageContext":
         return MessageContext(admin_room=self.admin_room)
 
