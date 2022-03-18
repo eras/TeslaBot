@@ -23,6 +23,7 @@ from .utils import assert_some
 from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgsParser
+from .asyncthread import to_async
 
 logger = log.getLogger(__name__)
 
@@ -228,7 +229,10 @@ class App(ControlCallback):
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         else:
             await self.control.send_message(context.to_message_context(), "Authorization successful")
-            self.tesla.fetch_token(authorization_response=authorization_response)
+            # https://github.com/python/mypy/issues/9590
+            def call() -> None:
+                self.tesla.fetch_token(authorization_response=authorization_response)
+            await to_async(call)
             vehicles = self.tesla.vehicle_list()
             await self.control.send_message(context.to_message_context(), str(vehicles[0]))
 
@@ -264,7 +268,7 @@ class App(ControlCallback):
     async def _wake(self, context: CommandContext, vehicle: teslapy.Vehicle) -> None:
         await self.control.send_message(context.to_message_context(), f"Waking up {vehicle['display_name']}")
         try:
-            vehicle.sync_wake_up()
+            await to_async(vehicle.sync_wake_up)
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
@@ -370,7 +374,7 @@ class App(ControlCallback):
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         try:
-            data = vehicle.get_vehicle_data()
+            data = await to_async(vehicle.get_vehicle_data)
             logger.debug(f"data: {data}")
             dist_hr_unit        = data["gui_settings"]["gui_distance_units"]
             dist_unit           = assert_some(re.match(r"^[^/]*", dist_hr_unit), "Expected to find / from dist_hr_unit")[0]
@@ -413,7 +417,10 @@ class App(ControlCallback):
             try:
                 command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
                 logger.debug(f"Sending {command}")
-                result = vehicle.command(command)
+                # https://github.com/python/mypy/issues/9590
+                def call() -> Any:
+                    vehicle.command(command)
+                result = to_async(call)
                 error = None
                 break
             except teslapy.VehicleError as exn:
