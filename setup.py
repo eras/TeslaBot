@@ -7,7 +7,7 @@ setup(
     author_email='erkki.seppala@vincit.fi',
     packages=['teslabot'],
     scripts=[],
-    url='http://pypi.python.org/pypi/teslabot/',
+    url='https://github.com/eras/TeslaBot/',
     license='LICENSE.MIT',
     description='Tool for interacting with the Tesla vehicles',
     long_description=open('README.md').read(),
