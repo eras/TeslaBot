@@ -343,7 +343,7 @@ class App(ControlCallback):
             # show precise location information
             st = f"{location}"
             if nearest_name is not None:
-                st += "near {nearest_name}"
+                st += f" near {nearest_name}"
             return st
         else:
             if self.location_detail == LocationDetail.Near:
