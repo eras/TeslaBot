@@ -2,6 +2,7 @@ import asyncio
 import re
 import os
 import errno
+import traceback
 from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from nio.exceptions import OlmUnverifiedDeviceError
@@ -156,15 +157,22 @@ class MatrixControl(control.Control):
             if [self._admin_room_id, self._room_id].count(room.room_id) \
                and re.match(r"^!", event.body):
                 admin_room = room.room_id == self._admin_room_id
+                command_context = CommandContext(admin_room=admin_room, control=self)
                 try:
-                    invocation = commands.Invocation.parse(event.body[1:])
-                    command_context = CommandContext(admin_room=admin_room, control=self)
-                    if self.local_commands.has_command(invocation.name):
-                        await self.local_commands.invoke(command_context, invocation)
-                    else:
-                        await self.callback.command_callback(command_context, invocation)
-                except commands.InvocationParseError:
-                    logger.error(f"Failed to parse command: {event.body[1:]}")
+                    try:
+                        invocation = commands.Invocation.parse(event.body[1:])
+                        if self.local_commands.has_command(invocation.name):
+                            await self.local_commands.invoke(command_context, invocation)
+                        else:
+                            await self.callback.command_callback(command_context, invocation)
+                    except commands.InvocationParseError as exn:
+                        logger.error(f"{command_context.txn}: Failed to parse command: {event.body[1:]}")
+                        await self.send_message(command_context.to_message_context(),
+                                                f"{command_context.txn}: Failed to parse request: {exn}")
+                except Exception:
+                    logger.fatal(f"{command_context.txn}: Failure processing callback: {traceback.format_exc()}")
+                    await self.send_message(command_context.to_message_context(),
+                                            f"{command_context.txn}: Failed to process request")
         else:
             self._pending_event_handlers.append(lambda: self._message_callback(room, event))
 
