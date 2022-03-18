@@ -165,10 +165,10 @@ class MatrixControl(control.Control):
                             await self.local_commands.invoke(command_context, invocation)
                         else:
                             await self.callback.command_callback(command_context, invocation)
-                    except commands.InvocationParseError as exn:
+                    except commands.ParseError as exn:
                         logger.error(f"{command_context.txn}: Failed to parse command: {event.body[1:]}")
                         await self.send_message(command_context.to_message_context(),
-                                                f"{command_context.txn}: Failed to parse request: {exn}")
+                                                f"{command_context.txn}\n{exn}")
                 except Exception:
                     logger.fatal(f"{command_context.txn}: Failure processing callback: {traceback.format_exc()}")
                     await self.send_message(command_context.to_message_context(),

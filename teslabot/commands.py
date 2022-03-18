@@ -8,7 +8,16 @@ Context = TypeVar("Context")
 T = TypeVar("T")
 Parsed = TypeVar("Parsed")
 
-class InvocationParseError(Exception):
+class CommandsException(Exception):
+    pass
+
+class ParseError(CommandsException):
+    pass
+
+class InvocationParseError(ParseError):
+    pass
+
+class CommandParseError(ParseError):
     pass
 
 @dataclass
@@ -54,7 +63,9 @@ class Function(Command[Context], Generic[Context, Parsed]):
 
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         validated = self.parser(invocation.args)
-        assert isinstance(validated, ParseOK), f"Expected invocation {invocation} to be validated: {validated}"
+        if isinstance(validated, ParseFail):
+            raise CommandParseError(validated.message)
+        assert isinstance(validated, ParseOK)
         await self.fn[0](context, validated.value)
 
     def parse(self, context: Context, invocation: Invocation) -> bool:
