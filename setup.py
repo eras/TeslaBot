@@ -13,10 +13,16 @@ setup(
     long_description=open('README.md').read(),
     install_requires=[
         "TeslaPy==2.4.0",
-        "matrix-nio[e2e]==0.19.0",
-        "slackclient==2.9.3",
         "python-socketio[asyncio_client]==5.5.2",
         "aiohttp==3.8.1",
         "aiounittest==1.4.1",
     ],
+    extras_require={
+        "matrix": [
+            "matrix-nio[e2e]==0.19.0",
+        ],
+        "slack": [
+            "slackclient==2.9.3",
+        ],
+    },
 )
