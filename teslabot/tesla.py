@@ -205,6 +205,8 @@ class App(ControlCallback):
                 logger.error(str(exn))
                 await self.control.send_message(command_context.to_message_context(),
                                                 exn.args[0])
+            except commands.CommandsException as exn:
+                raise exn
             except Exception as exn:
                 logger.error(str(exn))
                 await self.control.send_message(command_context.to_message_context(),
