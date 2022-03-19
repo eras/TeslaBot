@@ -21,9 +21,9 @@ do both with one bot this time.
 
 Chose Matrix? Good! Then you need to create a new Matrix id (aka mxid)
 in the homeserver of your choice. Once you have that, use that as the
-configuration key `matrix.mxid` (see [config.ini.example](the example
-config.ini)). The homeserver also needs to be configured at this
-time. You will also need to enter a password here.
+configuration key `matrix.mxid` (see [the example config.ini](config.ini.example)).
+The homeserver also needs to be configured at this time. You will also
+need to enter a password here.
 
 On the first connect TeslaBot will create an access token and a device
 id and write that to the _state file_. After this point the password
