@@ -75,6 +75,7 @@ You should not use `latest` but the correct version tag.
 | !help                       | Show the list of commands supported                                                                   |
 | !climate on [name]          | Sets climate on. Needs vehicle name if you have more than one Tesla.                                  |
 | !climate off [name]         | Sets climate off.                                                                                     |
+| !info [name]                | Show information about the device, such as about location, climate and charging                       |
 | !at 06:00 command           | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future. |
 | !atrm 42                    | Cancels a timer                                                                                       |
 | !atq                        | Lists timers                                                                                          |
