@@ -85,7 +85,16 @@ emacs tesla-data/config.ini # edit for your needs
 # Also consider --restart always
 docker run -ti --name teslabot -d -v $PWD/teslabot-data:/data ghcr.io/eras/teslabot:latest
 ```
-You should not use `latest` but the correct version tag.
+You should not use `latest` but the correct version tag. The image currently weighs around 130MB, so it's not tiny, but not huge either.
+
+You can build the Docker image yourself with:
+```
+git pull https://github.com/eras/TeslaBot
+cd TeslaBot
+docker build -t teslabot .
+```
+
+and then replace the `ghcr..` in the `docker run` command with `teslabot`.
 
 ## Installation without docker
 
