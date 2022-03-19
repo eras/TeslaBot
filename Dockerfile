@@ -1,4 +1,4 @@
-FROM debian:bullseye-slim
+FROM debian:bullseye-slim AS builder
 
 # works also:
 # FROM ubuntu:20.04
@@ -16,9 +16,15 @@ RUN pip install -r requirements.txt -r requirements-slack.txt -r requirements-ma
 COPY README.md setup.py setup.cfg versioneer.py /build/
 RUN apt-get purge -y libssl-dev libolm-dev libffi-dev gcc && apt-get autoremove -y
 COPY .git /build/.git/
-RUN git reset --hard; git clean -d -x -f; pip install .[slack,matrix]; rm -rf /build
+RUN git reset --hard && git clean -d -x -f && pip install .[slack,matrix] && apt-get purge -y python3-pip
+
+FROM debian:bullseye-slim
+
+RUN apt-get update && \
+  DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install -y python3-minimal python3-typing-extensions && \
+  rm -rf /var/lib/dpkg /var/lib/apt /var/cache/apt /usr/share/doc /build
+COPY --from=builder /usr/local/lib/python3.9/ /usr/local/lib/python3.9/
 WORKDIR /data
-RUN apt-get purge -y python3-pip git && apt-get autoremove -y && rm -rf /var/lib/dpkg /var/lib/apt /var/cache/apt
 RUN echo; python3 -m teslabot --version; echo
 
 CMD ["python3", "-m", "teslabot", "--config", "/data/teslabot.ini"]
