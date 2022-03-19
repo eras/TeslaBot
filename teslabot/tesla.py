@@ -185,13 +185,13 @@ class App(ControlCallback):
         self._commands.register(c.Function("info", "info [vehicle] - Show vehicle location, temperature, etc",
                                            valid_info(self), self._command_info))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
-                                           p.Adjacent(p.HourMinute(), valid_schedulable(self)), self._command_at))
+                                           p.Remaining(p.Adjacent(p.HourMinute(), valid_schedulable(self))), self._command_at))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its timestamp",
-                                           p.Int(), self._command_rm))
+                                           p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
                                            p.Empty(), self._command_ls))
         self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
-                                           LocationArgsParser(self.locations), self.locations.command))
+                                           p.Remaining(LocationArgsParser(self.locations)), self.locations.command))
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
 

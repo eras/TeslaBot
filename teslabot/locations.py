@@ -63,17 +63,16 @@ class Location:
         return distance
 
 LocationAddArgsValue = \
-    p.Adjacent(p.Adjacent(p.Adjacent(p.AnyStr(),
+    p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(),
                                      p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)$", [1, 3])),
-                          p.ValidOrMissing(p.RestAsStr())),
-               p.Empty())
-LocationAddArgs = Tuple[Tuple[Tuple[str, Tuple[str, ...]], Optional[str]], Tuple[()]]
+                          p.ValidOrMissing(p.RestAsStr())))
+LocationAddArgs = Tuple[Tuple[str, Tuple[str, ...]], Optional[str]]
 
 LocationLsArgsValue = p.Empty()
 LocationLsArgs = Tuple[()]
 
-LocationRmArgsValue = p.Adjacent(p.AnyStr(), p.Empty())
-LocationRmArgs = Tuple[str, Tuple[()]]
+LocationRmArgsValue = p.Remaining(p.AnyStr())
+LocationRmArgs = str
 
 LocationArgs = Callable[[CommandContext], Awaitable[None]]
 
@@ -117,7 +116,7 @@ class Locations(StateElement):
     async def _command_location_add(self,
                                     context: CommandContext,
                                     args: LocationAddArgs) -> None:
-        ((name, (lat, lon)), address), _ = args
+        (name, (lat, lon)), address = args
         try:
             await self.add(name, Location(lat=float(lat), lon=float(lon), address=address))
             await context.control.send_message(context.to_message_context(),
@@ -145,7 +144,7 @@ class Locations(StateElement):
     async def _command_location_rm(self,
                                    context: CommandContext,
                                    args: LocationRmArgs) -> None:
-        (name, _) = args
+        name = args
         try:
             await self.remove(name)
             await context.control.send_message(context.to_message_context(),

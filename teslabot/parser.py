@@ -284,6 +284,23 @@ class Adjacent(Parser[Tuple[T1, T2]]):
         assert(isinstance(right, ParseOK))
         return ParseOK((left.value, right.value), processed=left.processed + right.processed)
 
+class Remaining(Parser[T]):
+    """Requires the underlying parser to parse all provided data, otherwise returns ParseFail"""
+    parser: Parser[T]
+
+    def __init__(self, parser: Parser[T]):
+        self.parser = parser
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            if result.processed == len(args):
+                return result
+            else:
+                return ParseFail("Extraneous input after command")
+        else:
+            return result
+
 class Seq(Parser[List[T]]):
     """Parser a sequence of values in the same order as the given parsers
 
