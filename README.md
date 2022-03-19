@@ -86,6 +86,23 @@ docker run -ti --name teslabot -d -v $PWD/teslabot-data:/data ghcr.io/eras/tesla
 ```
 You should not use `latest` but the correct version tag.
 
+## Installation without docker
+
+```
+# optional:
+python3 -m venv teslabot
+. teslabot/activate/bin
+
+sudo apt install -y libolm-dev libffi-dev
+pip3 install git+https://github.com/eras/TeslaBot
+curl https://raw.githubusercontent.com/eras/TeslaBot/master/config.ini.example > config.ini
+emacs tesla-data/config.ini # edit for your needs
+
+python3 -m teslabot --config config.ini
+```
+
+You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on the background.
+
 ## Commands
 
 | command                     | description                                                                                           |
