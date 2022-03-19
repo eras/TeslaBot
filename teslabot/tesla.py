@@ -171,7 +171,9 @@ class App(ControlCallback):
         self.location_detail = LocationDetail.Full
         control.callback = self
         self._scheduler = scheduler.Scheduler()
-        self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"])
+        cache_file=self.config.config.get("tesla", "credentials_store", fallback="cache.json")
+        self.tesla = teslapy.Tesla(self.config.config["tesla"]["email"],
+                                   cache_file=cache_file)
         self._scheduler_id = 1
         c = commands
         self._commands = c.Commands()
