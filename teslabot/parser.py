@@ -125,10 +125,10 @@ class Int(Parser[int]):
     def parse(self, args: List[str]) -> ParseResult[int]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
-            return ParseOK(int(result.value), processed=result.processed)
+            return ParseOK(int(result.value[0]), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
-            return result
+            return ParseFail(result.message)
 
 class Bool(Parser[bool]):
     def parse(self, args: List[str]) -> ParseResult[bool]:
