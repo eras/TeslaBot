@@ -86,7 +86,7 @@ class SlackControl(control.Control):
                 ids = [channel["id"] for channel in result["channels"] if f"#{channel['name']}" == self._channel_name]
                 if ids:
                     self._channel_id = ids[0]
-                    self._state.save()
+                    await self._state.save()
                 else:
                     raise control.ConfigError(f"Could not find channel {self._channel_name} from the list of joined conversations")
         # logger.info("Post message")
