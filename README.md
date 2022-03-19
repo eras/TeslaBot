@@ -46,7 +46,8 @@ making the normal operation of this function quite a lot less tedious.
 
 ## Slack
 
-You need to create a new app for this in the Slack workspace.
+Controlling your corporate fleet? First you need to create a new app
+for this in the Slack workspace.
 
 The bot uses websockets, so no need to configure any inbound hooks,
 just any random box will do.
@@ -73,7 +74,7 @@ just copy the URL from your web browser and send the command
 
 to the bot admin room and you're done
 
-## Docker setup
+## Setup with Docker
 
 ```
 mkdir tesla-data
