@@ -21,7 +21,7 @@ RUN git reset --hard && git clean -d -x -f && pip install .[slack,matrix] && apt
 FROM debian:bullseye-slim
 
 RUN apt-get update && \
-  DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install -y python3-minimal python3-typing-extensions && \
+  DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install -y python3-minimal && \
   rm -rf /var/lib/dpkg /var/lib/apt /var/cache/apt /usr/share/doc /build
 COPY --from=builder /usr/local/lib/python3.9/ /usr/local/lib/python3.9/
 WORKDIR /data
