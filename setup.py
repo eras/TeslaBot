@@ -1,4 +1,9 @@
 from setuptools import setup
+from typing import List
+
+def lines(filename: str) -> List[str]:
+    with open(filename, "r") as input:
+        return input.readlines()
 
 setup(
     name='TeslaBot',
@@ -11,18 +16,9 @@ setup(
     license='LICENSE.MIT',
     description='Tool for interacting with the Tesla vehicles',
     long_description=open('README.md').read(),
-    install_requires=[
-        "TeslaPy==2.4.0",
-        "python-socketio[asyncio_client]==5.5.2",
-        "aiohttp==3.8.1",
-        "aiounittest==1.4.1",
-    ],
+    install_requires=lines("requirements.txt"),
     extras_require={
-        "matrix": [
-            "matrix-nio[e2e]==0.19.0",
-        ],
-        "slack": [
-            "slackclient==2.9.3",
-        ],
+        "matrix": lines("requirements-matrix.txt"),
+        "slack": lines("requirements-slack.txt"),
     },
 )
