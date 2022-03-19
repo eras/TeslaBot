@@ -138,14 +138,14 @@ class MatrixControl(control.Control):
             logger.debug(f"invite callback to {room} event {event}: joining to admin room")
             await self._client.join(room.room_id)
             self._admin_room_id = room.room_id
-            self._state.save()
+            await self._state.save()
             logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
             await self.send_message(control.MessageContext(admin_room=True), "This is the admin room.")
         elif self._room_id is None:
             logger.debug(f"invite callback to {room} event {event}: joining to control room")
             await self._client.join(room.room_id)
             self._room_id = room.room_id
-            self._state.save()
+            await self._state.save()
             logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
             await self.send_message(control.MessageContext(admin_room=True), "This is the control room.")
         else:
