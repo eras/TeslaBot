@@ -8,9 +8,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN
 VOLUME /data
 WORKDIR /build
 
-RUN cp /usr/share/zoneinfo/Europe/Helsinki /etc/localtime
-RUN echo "Europe/Helsinki" > /etc/timezone
-
 COPY requirements.txt requirements-slack.txt requirements-matrix.txt /build/
 RUN pip install -r requirements.txt -r requirements-slack.txt -r requirements-matrix.txt
 COPY README.md setup.py setup.cfg versioneer.py /build/
