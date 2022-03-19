@@ -21,7 +21,7 @@ do both with one bot this time.
 
 Chose Matrix? Good! Then you need to create a new Matrix id (aka mxid)
 in the homeserver of your choice. Once you have that, use that as the
-configuration key matrix.mxid (see [config.ini.example](the example
+configuration key `matrix.mxid` (see [config.ini.example](the example
 config.ini)). The homeserver also needs to be configured at this
 time. You will also need to enter a password here.
 
@@ -45,7 +45,7 @@ Invite the bot to the room in the configuration.
 On the first startup the bot needs given an authorization to the Tesla
 API. This can happen by using the cli tool in
 https://pypi.org/project/TeslaPy/ to generate `cache.json` for you and
-then pointing tesla.credential_store in the configuration to that
+then pointing `tesla.credential_store` in the configuration to that
 file. Alternatively you can visit the URL the bot will tell you (in
 the admin room if one is available, otherwise you need to fish it from
 the logs), and once you have entered your Tesla credentials, you will
