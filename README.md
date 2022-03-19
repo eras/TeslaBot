@@ -101,7 +101,7 @@ and then replace the `ghcr..` in the `docker run` command with `teslabot`.
 ```
 # optional:
 python3 -m venv teslabot
-. teslabot/activate/bin
+. teslabot/bin/activate
 
 sudo apt install -y libolm-dev libffi-dev
 pip3 install git+https://github.com/eras/TeslaBot
