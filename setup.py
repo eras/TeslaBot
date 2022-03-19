@@ -1,4 +1,5 @@
 from setuptools import setup
+import versioneer
 from typing import List
 
 def lines(filename: str) -> List[str]:
@@ -7,7 +8,8 @@ def lines(filename: str) -> List[str]:
 
 setup(
     name='TeslaBot',
-    version='0.1.0',
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     author='Erkki Seppälä',
     author_email='erkki.seppala@vincit.fi',
     packages=['teslabot'],

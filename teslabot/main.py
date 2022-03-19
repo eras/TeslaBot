@@ -7,6 +7,7 @@ from . import state
 from .env import Env
 from . import tesla
 from . import scheduler
+from . import __version__
 
 logger = log.getLogger(__name__)
 
@@ -20,13 +21,19 @@ async def dump_all_tasks() -> None:
 async def async_main() -> None:
     log.setup_logging()
     logger.setLevel(log.INFO)
-    logger.info("Starting")
 
     scheduler. logger.setLevel(log.INFO)
     tesla.     logger.setLevel(log.DEBUG)
     control.   logger.setLevel(log.INFO)
 
+    logger.info(f"Version: {__version__}")
+
     args         = config.get_args()
+    if args.version:
+        # We're done here, we just showed version
+        return
+
+    logger.info("Starting")
     config_      = config.Config(filename=args.config)
     state_       = state.State(filename=config_.config["common"]["state_file"])
     control_name = config_.config["common"]["control"]

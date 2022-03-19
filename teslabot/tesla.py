@@ -24,6 +24,7 @@ from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgsParser
 from .asyncthread import to_async
+from . import __version__
 
 logger = log.getLogger(__name__)
 
@@ -459,7 +460,7 @@ class App(ControlCallback):
     async def run(self) -> None:
         await self._scheduler.start()
         await self._load_state()
-        await self.control.send_message(MessageContext(admin_room=False), "TeslaBot started")
+        await self.control.send_message(MessageContext(admin_room=False), f"TeslaBot {__version__} started")
         self.state.add_element(AppState(self))
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")

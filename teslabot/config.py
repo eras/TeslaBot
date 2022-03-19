@@ -10,12 +10,13 @@ class ConfigFileNotFoundError(Exception):
 @dataclass
 class Args:
     config: str
+    version: bool
 
 def get_args() -> Args:
     parser = argparse.ArgumentParser(description='Process some integers.')
-    parser.add_argument('config', type=str,
-                        default="teslabot.ini",
+    parser.add_argument('--config', type=str, default="teslabot.ini",
                         help='Configuration file name')
+    parser.add_argument('--version', action='store_true', help="Show version")
     return cast(Args, parser.parse_args())
 
 class Config:

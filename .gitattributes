@@ -1,0 +1,2 @@
+teslabot/_version.py export-subst
+build/lib/teslabot/_version.py export-subst

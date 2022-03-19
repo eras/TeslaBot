@@ -1,0 +1,3 @@
+include versioneer.py
+include teslabot/_version.py
+include build/lib/teslabot/_version.py
