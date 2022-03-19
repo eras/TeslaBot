@@ -27,4 +27,4 @@ COPY --from=builder /usr/local/lib/python3.9/ /usr/local/lib/python3.9/
 WORKDIR /data
 RUN echo; python3 -m teslabot --version; echo
 
-CMD ["python3", "-m", "teslabot", "--config", "/data/teslabot.ini"]
+CMD ["python3", "-m", "teslabot", "--config", "/data/config.ini"]
