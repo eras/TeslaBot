@@ -2,7 +2,6 @@ import asyncio
 import re
 import os
 import errno
-import traceback
 from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from nio.exceptions import OlmUnverifiedDeviceError
@@ -16,8 +15,6 @@ from .config import Config
 from .state import State, StateElement
 from . import log
 from .env import Env
-from . import commands
-from . import parser
 
 logger = log.getLogger(__name__)
 
@@ -154,25 +151,10 @@ class MatrixControl(control.Control):
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
         if self._init_done.is_set():
             assert isinstance(event, RoomMessageText)
-            if [self._admin_room_id, self._room_id].count(room.room_id) \
-               and re.match(r"^!", event.body):
+            if [self._admin_room_id, self._room_id].count(room.room_id):
                 admin_room = room.room_id == self._admin_room_id
                 command_context = CommandContext(admin_room=admin_room, control=self)
-                try:
-                    try:
-                        invocation = commands.Invocation.parse(event.body[1:])
-                        if self.local_commands.has_command(invocation.name):
-                            await self.local_commands.invoke(command_context, invocation)
-                        else:
-                            await self.callback.command_callback(command_context, invocation)
-                    except commands.ParseError as exn:
-                        logger.error(f"{command_context.txn}: Failed to parse command: {event.body[1:]}")
-                        await self.send_message(command_context.to_message_context(),
-                                                f"{command_context.txn}\n{exn}")
-                except Exception:
-                    logger.fatal(f"{command_context.txn}: Failure processing callback: {traceback.format_exc()}")
-                    await self.send_message(command_context.to_message_context(),
-                                            f"{command_context.txn}: Failed to process request")
+                await self.process_message(command_context, event.body)
         else:
             self._pending_event_handlers.append(lambda: self._message_callback(room, event))
 

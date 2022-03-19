@@ -1,9 +1,16 @@
 import uuid
+import re
+import logging
+import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Tuple
+
 from . import commands
 from . import parser
+from . import log
+
+logger = log.getLogger(__name__)
 
 @dataclass
 class CommandContext:
@@ -63,6 +70,25 @@ class Control(ABC):
                            message: str) -> None:
         """Sends a message to the admin or the control channel"""
         pass
+
+    async def process_message(self, command_context: CommandContext, message: str) -> None:
+        if re.match(r"^!", message):
+            logger.info(f"< {message}")
+            try:
+                try:
+                    invocation = commands.Invocation.parse(message[1:])
+                    if self.local_commands.has_command(invocation.name):
+                        await self.local_commands.invoke(command_context, invocation)
+                    else:
+                        await self.callback.command_callback(command_context, invocation)
+                except commands.ParseError as exn:
+                    logger.error(f"{command_context.txn}: Failed to parse command: {message}")
+                    await self.send_message(command_context.to_message_context(),
+                                            f"{command_context.txn}\n{exn}")
+            except Exception:
+                logger.fatal(f"{command_context.txn}: Failure processing callback: {traceback.format_exc()}")
+                await self.send_message(command_context.to_message_context(),
+                                        f"{command_context.txn}: Failed to process request")
 
     @abstractmethod
     async def run(self) -> None:

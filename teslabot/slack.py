@@ -141,15 +141,10 @@ class SlackControl(control.Control):
                                 await session.send_json(ack)
                                 logger.debug(f"acked")
                             text = json_message.get("payload", {}).get("event", {}).get("text", None)
-                            if text is not None and text[0] == "!":
-                                logger.info(f"< {text}")
-                                invocation = commands.Invocation.parse(text[1:])
+                            if text is not None:
                                 command_context = CommandContext(admin_room=False,
                                                                  control=self)
-                                if self.local_commands.has_command(invocation.name):
-                                    await self.local_commands.invoke(command_context, invocation)
-                                else:
-                                    await self.callback.command_callback(command_context, invocation)
+                                await self.process_message(command_context, text)
                     if got_messages:
                         logger.error(f"Web socket session terminated: sleeping 10 seconds and reconnecting")
                         await asyncio.sleep(10)
