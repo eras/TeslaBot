@@ -192,7 +192,7 @@ class App(ControlCallback):
                                            valid_info(self), self._command_info))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
                                            p.Remaining(p.Adjacent(p.HourMinute(), valid_schedulable(self))), self._command_at))
-        self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its timestamp",
+        self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
                                            p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
                                            p.Empty(), self._command_ls))
