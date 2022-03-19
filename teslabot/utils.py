@@ -14,3 +14,7 @@ def assert_some(x: Optional[T], message: Optional[str] = None) -> T:
     else:
         assert x is not None
     return x
+
+def indent(by: int, string: str) -> str:
+    prefix = " " * by
+    return ''.join([f"{prefix}{st}" for st in string.splitlines(True)])

@@ -1,8 +1,14 @@
 import re
+import logging
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Awaitable
 from .parser import Parser, ParseResult, ParseOK, ParseFail
+
+from . import log
+
+logger = log.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 Context = TypeVar("Context")
 T = TypeVar("T")
@@ -36,9 +42,11 @@ class Invocation:
 
 class Command(ABC, Generic[Context]):
     name: str
+    description: str
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, description: str) -> None:
         self.name = name
+        self.description = description
 
     @abstractmethod
     async def invoke(self, context: Context, invocation: Invocation) -> None:
@@ -54,10 +62,10 @@ class Function(Command[Context], Generic[Context, Parsed]):
     parser: Parser[Parsed]
     fn: List[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
 
-    def __init__(self, name: str,
+    def __init__(self, name: str, description: str,
                  parser: Parser[Parsed],
                  fn: Callable[[Context, Parsed], Coroutine[Any, Any, None]]) -> None:
-        super().__init__(name)
+        super().__init__(name, description)
         self.parser = parser
         self.fn = [fn]
 
@@ -109,6 +117,12 @@ class Commands(Generic[Context]):
         for command in self._commands:
             if command.name == invocation.name:
                 await command.invoke(context, invocation)
+
+    def help(self) -> str:
+        results: List[str] = []
+        for command in self._commands:
+            results.append(f"{command.name}: {command.description}")
+        return "\n".join(results)
 
     def parser(self) -> CommandsParser[Context]:
         return CommandsParser(self)

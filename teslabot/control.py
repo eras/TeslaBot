@@ -46,7 +46,8 @@ class Control(ABC):
     def __init__(self) -> None:
         self.callback = DefaultControlCallback()
         self.local_commands = commands.Commands()
-        self.local_commands.register(commands.Function("ping", parser.Empty(), self._command_ping))
+        self.local_commands.register(commands.Function("ping", "Ping the bot",
+                                                       parser.Empty(), self._command_ping))
 
     async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")

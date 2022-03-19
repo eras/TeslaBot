@@ -19,8 +19,8 @@ class TestCommands(unittest.TestCase):
             called[0] = valid
         async def command1(context: None, valid: Result) -> None:
             called[1] = valid
-        cmds.register(c.Function("test0", valid, command0))
-        cmds.register(c.Function("test1", valid, command1))
+        cmds.register(c.Function("test0", "", valid, command0))
+        cmds.register(c.Function("test1", "", valid, command1))
         return cmds
 
     def test_simple_call(self) -> None:

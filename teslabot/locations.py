@@ -96,17 +96,20 @@ class Locations(StateElement):
         state.add_element(self)
 
         self.cmds = commands.Commands[CommandContext]()
-        self.cmds.register(commands.Function("add",
+        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon [address]",
                                              LocationAddArgsValue,
                                              self._command_location_add))
-        self.cmds.register(commands.Function("ls",
+        self.cmds.register(commands.Function("ls", "List locations",
                                              LocationLsArgsValue,
                                              self._command_location_ls))
-        self.cmds.register(commands.Function("rm",
+        self.cmds.register(commands.Function("rm", "Remove location by name",
                                              LocationRmArgsValue,
                                              self._command_location_rm))
 
         self.load()
+
+    def help(self) -> str:
+        return self.cmds.help()
 
     async def command(self, context: CommandContext, args: LocationArgs) -> None:
         await args(context)

@@ -19,7 +19,7 @@ from .config import Config
 from .state import State, StateElement
 from . import commands
 from . import parser as p
-from .utils import assert_some
+from .utils import assert_some, indent
 from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgsParser
@@ -177,24 +177,40 @@ class App(ControlCallback):
         self._scheduler_id = 1
         c = commands
         self._commands = c.Commands()
-        self._commands.register(c.Function("authorize", p.AnyStr(), self._command_authorized))
-        self._commands.register(c.Function("vehicles", p.Empty(), self._command_vehicles))
-        self._commands.register(c.Function("climate", valid_climate(self), self._command_climate))
-        self._commands.register(c.Function("info", valid_info(self), self._command_info))
-        self._commands.register(c.Function("at", p.Adjacent(p.HourMinute(), valid_schedulable(self)), self._command_at))
-        self._commands.register(c.Function("rm", p.Int(), self._command_rm))
-        self._commands.register(c.Function("ls", p.Empty(), self._command_ls))
-        self._commands.register(c.Function("location", LocationArgsParser(self.locations), self.locations.command))
+        self._commands.register(c.Function("authorize", "Pass the Tesla API authorization URL",
+                                           p.AnyStr(), self._command_authorized))
+        self._commands.register(c.Function("vehicles", "List vehicles",
+                                           p.Empty(), self._command_vehicles))
+        self._commands.register(c.Function("climate", "climate on|off [vehicle] - control climate",
+                                           valid_climate(self), self._command_climate))
+        self._commands.register(c.Function("info", "info [vehicle] - Show vehicle location, temperature, etc",
+                                           valid_info(self), self._command_info))
+        self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
+                                           p.Adjacent(p.HourMinute(), valid_schedulable(self)), self._command_at))
+        self._commands.register(c.Function("rm", "Remove a scheduled operation or a running task by its timestamp",
+                                           p.Int(), self._command_rm))
+        self._commands.register(c.Function("ls", "List scheduled operations or running tasks",
+                                           p.Empty(), self._command_ls))
+        self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
+                                           LocationArgsParser(self.locations), self.locations.command))
+        self._commands.register(c.Function("help", "Show help",
+                                           p.Empty(), self._command_help))
 
         self._set_commands = c.Commands()
-        self._set_commands.register(c.Function("location-detail", p.OneOfEnumValue(LocationDetail), self._command_set_location_detail))
+        self._set_commands.register(c.Function("location-detail", "full, near, at, nearest",
+                                               p.OneOfEnumValue(LocationDetail), self._command_set_location_detail))
 
-        self._commands.register(c.Function("set", SetArgsParser(self), self._command_set))
+        self._commands.register(c.Function("set", f"Set a configuration parameter\n{indent(2, self._set_commands.help())}",
+                                           SetArgsParser(self), self._command_set))
 
     def _next_scheduler_id(self) -> int:
         id = self._scheduler_id
         self._scheduler_id += 1
         return id
+
+    async def _command_help(self, command_context: CommandContext, args: Tuple[()]) -> None:
+        await self.control.send_message(command_context.to_message_context(),
+                                        self._commands.help())
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -211,7 +227,7 @@ class App(ControlCallback):
             except commands.CommandsException as exn:
                 raise exn
             except Exception as exn:
-                logger.error(f"{command_context.txn} {exn}")
+                logger.error(f"{command_context.txn} {exn} {traceback.format_exc()}")
                 await self.control.send_message(command_context.to_message_context(),
                                                 f"{command_context.txn} Exception :(")
         else:
