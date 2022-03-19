@@ -33,6 +33,9 @@ no longer needs to be available in the config file.
 
 You need to create a new app for this in the Slack workspace.
 
+The bot uses websockets, so no need to configure any inbound hooks,
+just any random box will do.
+
 TODO: make these instructions a bit more complete
 
 Invite the bot to the room in the configuration.
