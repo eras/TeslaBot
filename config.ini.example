@@ -1,12 +1,28 @@
-[Tesla]
-email=
+[common]
+state_file = state.ini
+control = matrix
 
-[Matrix]
-homeserver=https://matrix.org/
-mxid=@example:matrix.org
-password=password
+[tesla]
+email = user@example.com
 
-[Slack]
-slackid=
-token=
-channel=34343i9
+[matrix]
+# Store matrix state in this directory
+store_path = matrix_store
+
+# Homeserver to use
+homeserver = https://matrix.org/
+
+# Matrix id for the bot
+mxid = @yourtesla:matrix.org
+
+# Password for logging in to Matrix; can be removed after initial signin is complete
+# and access token is written to state_file
+password = secret_password
+
+# Trust the devices of these users. Not secure against active attacks.
+trust_mxids = @youruserid:matrix.org,@anotherid:example.com
+
+[slack]
+oauth =
+signing_secret =
+channel = #teslacontrol
