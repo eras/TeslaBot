@@ -166,7 +166,6 @@ class App(ControlCallback):
         self.control = control
         self.config = env.config
         self.state = env.state
-        self.state.add_element(AppState(self))
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         control.callback = self
@@ -461,5 +460,6 @@ class App(ControlCallback):
         await self._scheduler.start()
         await self._load_state()
         await self.control.send_message(MessageContext(admin_room=False), "TeslaBot started")
+        self.state.add_element(AppState(self))
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
