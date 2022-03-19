@@ -4,6 +4,9 @@ from typing import cast, List
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+class ConfigFileNotFoundError(Exception):
+    pass
+
 @dataclass
 class Args:
     config: str
@@ -23,4 +26,5 @@ class Config:
                  filename: str) -> None:
         self.filename = filename
         self.config = ConfigParser()
-        self.config.read(filename)
+        if not self.config.read(filename):
+            raise ConfigFileNotFoundError(f"Cannot open config file {filename}")
