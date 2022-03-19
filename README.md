@@ -29,6 +29,21 @@ On the first connect TeslaBot will create an access token and a device
 id and write that to the _state file_. After this point the password
 no longer needs to be available in the config file.
 
+The bot supports end-to-end encryption. To make use of this you need
+to add the list of trusted mxids in the configuration. This is not
+very secure against active attacks where e.g. an attacker is able to
+introduce new devices to the device list, but it should be secure
+against passive attacks where an attacker gains access to the
+(encrypted) messages.
+
+You also may want to add the bot device as a trusted device in your
+Matrix client of choice.
+
+Contributions for a more secure way to do this are welcome, but
+ultimately it will be solved once [matrix-nio supports
+cross-signing](https://github.com/poljar/matrix-nio/issues/229),
+making the normal operation of this function quite a lot less tedious.
+
 ## Slack
 
 You need to create a new app for this in the Slack workspace.
