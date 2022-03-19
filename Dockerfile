@@ -1,6 +1,9 @@
 FROM debian:bullseye-slim
 
-RUN apt-get update && apt-get install -y libssl-dev libolm-dev libffi-dev tzdata gcc python3-minimal python3-pip python3-typing-extensions git
+# works also:
+# FROM ubuntu:20.04
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install -y libssl-dev libolm-dev libffi-dev tzdata gcc python3-minimal python3-pip python3-typing-extensions git
 
 VOLUME /data
 WORKDIR /build
