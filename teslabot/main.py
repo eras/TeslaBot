@@ -26,11 +26,12 @@ async def async_main() -> None:
     tesla.     logger.setLevel(log.DEBUG)
     control.   logger.setLevel(log.INFO)
 
-    args = config.get_args()
-    config_ = config.Config(filename=args.config)
-    state_ = state.State(filename=config_.config["common"]["state_file"])
+    args         = config.get_args()
+    config_      = config.Config(filename=args.config)
+    state_       = state.State(filename=config_.config["common"]["state_file"])
     control_name = config_.config["common"]["control"]
-    env = Env(config=config_, state=state_)
+    env          = Env(config=config_,
+                       state=state_)
     if control_name == "matrix":
         from . import matrix
         control_ : control.Control = matrix.MatrixControl(env)
