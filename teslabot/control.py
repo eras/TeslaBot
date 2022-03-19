@@ -49,12 +49,14 @@ class DefaultControlCallback(ControlCallback):
 class Control(ABC):
     callback: ControlCallback
     local_commands: commands.Commands[CommandContext]
+    require_bang: bool
 
     def __init__(self) -> None:
         self.callback = DefaultControlCallback()
         self.local_commands = commands.Commands()
         self.local_commands.register(commands.Function("ping", "Ping the bot",
                                                        parser.Empty(), self._command_ping))
+        self.require_bang = True
 
     async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")
@@ -72,11 +74,12 @@ class Control(ABC):
         pass
 
     async def process_message(self, command_context: CommandContext, message: str) -> None:
-        if re.match(r"^!", message):
+        has_bang = bool(re.match(r"^!", message))
+        if not self.require_bang or has_bang:
             logger.info(f"< {message}")
             try:
                 try:
-                    invocation = commands.Invocation.parse(message[1:])
+                    invocation = commands.Invocation.parse(message[1:] if has_bang else message)
                     if self.local_commands.has_command(invocation.name):
                         await self.local_commands.invoke(command_context, invocation)
                     else:

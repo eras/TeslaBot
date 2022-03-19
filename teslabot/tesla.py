@@ -120,6 +120,11 @@ class AppState(StateElement):
             state["tesla"] = {}
         state["tesla"]["location_detail"] = self.app.location_detail.value
 
+        # TODO: move this to Control
+        if not "control" in state:
+            state["control"] = {}
+        state["control"]["require_bang"] = str(self.app.control.require_bang)
+
 ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
 def valid_climate(app: "App") -> p.Parser[ClimateArgs]:
     return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app.tesla))),
@@ -199,6 +204,9 @@ class App(ControlCallback):
         self._set_commands = c.Commands()
         self._set_commands.register(c.Function("location-detail", "full, near, at, nearest",
                                                p.OneOfEnumValue(LocationDetail), self._command_set_location_detail))
+        # TODO: move this to Control
+        self._set_commands.register(c.Function("require-!", "true or false, whether to require ! in front of commands",
+                                               p.Remaining(p.Bool()), self._command_set_require_bang))
 
         self._commands.register(c.Function("set", f"Set a configuration parameter\n{indent(2, self._set_commands.help())}",
                                            SetArgsParser(self), self._command_set))
@@ -241,6 +249,13 @@ class App(ControlCallback):
         await self.state.save()
         await self.control.send_message(context.to_message_context(),
                                         f"Location detail set to {self.location_detail.value}")
+
+    # TODO: move this to Control
+    async def _command_set_require_bang(self, context: CommandContext, args: bool) -> None:
+        self.control.require_bang = args
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        f"Require bang set to {self.control.require_bang}")
 
     async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
         if not context.admin_room:
@@ -321,6 +336,10 @@ class App(ControlCallback):
             location_detail_value = self.state.state.get("tesla", "location_detail", fallback=LocationDetail.Full.value)
             matching_location_details = [enum for enum in LocationDetail.__members__.values() if enum.value == location_detail_value]
             self.location_detail = matching_location_details[0]
+
+        # TODO: move this to Control
+        if self.state.state.has_section("control"):
+            self.control.require_bang = bool(self.state.state.get("control", "require_bang", fallback=str(self.control.require_bang)) == str(True))
 
     async def _activate_timer(self, entry: scheduler.Entry) -> None:
         if isinstance(entry, AppOneShot):
