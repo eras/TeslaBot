@@ -102,12 +102,15 @@ and then replace the `ghcr..` in the `docker run` command with `teslabot`.
 # optional:
 python3 -m venv teslabot
 . teslabot/bin/activate
+pip3 install wheel
 
 sudo apt install -y libolm-dev libffi-dev
-pip3 install git+https://github.com/eras/TeslaBot
+git clone https://github.com/eras/TeslaBot
+pip3 install ./TeslaBot[matrix,slack]
 curl https://raw.githubusercontent.com/eras/TeslaBot/master/config.ini.example > config.ini
-emacs tesla-data/config.ini # edit for your needs
+emacs config.ini # edit for your needs
 
+# Run and do the API authentication
 python3 -m teslabot --config config.ini
 ```
 
