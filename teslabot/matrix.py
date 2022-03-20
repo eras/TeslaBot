@@ -15,6 +15,7 @@ from .config import Config
 from .state import State, StateElement
 from . import log
 from .env import Env
+from . import commands, parser
 
 logger = log.getLogger(__name__)
 
@@ -81,6 +82,17 @@ class MatrixControl(control.Control):
             admin_room_id = None
         self._admin_room_id = admin_room_id
 
+        self.local_commands.register(commands.Function("sameroom", "Assign control room to be the same as admin room",
+                                                       parser.Empty(), self._command_sameroom))
+
+    async def _command_sameroom(self, context: CommandContext, args: Tuple[()]) -> None:
+        if context.admin_room:
+            await self.send_message(context.to_message_context(), f"Setting room_id = self._admin_room_id (was {self._room_id})")
+            self._room_id = self._admin_room_id
+            await self._state.save()
+        else:
+            await self.send_message(context.to_message_context(), "This request must be sent to the admin room.")
+
     async def setup(self) -> None:
         mx_config = self._config["matrix"] if self._config.has_section("matrix") else None
         mx_state = self._state.state["matrix"] if "matrix" in self._state.state else None
@@ -137,14 +149,14 @@ class MatrixControl(control.Control):
             self._admin_room_id = room.room_id
             await self._state.save()
             logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
-            await self.send_message(control.MessageContext(admin_room=True), "This is the admin room.")
+            await self.send_message(control.MessageContext(admin_room=True), "This is the admin room. Invite to another room or use !sameroom to set this to be the control room as well.")
         elif self._room_id is None:
             logger.debug(f"invite callback to {room} event {event}: joining to control room")
             await self._client.join(room.room_id)
             self._room_id = room.room_id
             await self._state.save()
             logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
-            await self.send_message(control.MessageContext(admin_room=True), "This is the control room.")
+            await self.send_message(control.MessageContext(admin_room=False), "This is the control room.")
         else:
             logger.debug(f"invite callback to {room} event {event}: not joining, we are already in {self._room_id}")
 
