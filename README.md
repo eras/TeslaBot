@@ -96,6 +96,8 @@ docker build -t teslabot .
 
 and then replace the `ghcr..` in the `docker run` command with `teslabot`.
 
+You can also use `docker-compose up` to build and start in one go. Review [the very basic yaml file](docker-compose.yaml) first.
+
 ## Installation without docker
 
 ```

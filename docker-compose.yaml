@@ -1,0 +1,6 @@
+version: '2'
+services:
+  bot:
+    image: "ghcr.io/eras/teslabot:latest"
+    volumes:
+      - ./data:/data
