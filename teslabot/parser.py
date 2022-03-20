@@ -261,7 +261,7 @@ class Tag(Map[T, Tuple[TagT, T]]):
         self.tag = tag
 
 class Adjacent(Parser[Tuple[T1, T2]]):
-    """Validates two values in the same order as the given validtors"""
+    """Parses two values in the same order as the given parsers"""
 
     parser_left: Parser[T1]
     parser_right: Parser[T2]
@@ -304,7 +304,7 @@ class Remaining(Parser[T]):
 class Seq(Parser[List[T]]):
     """Parser a sequence of values in the same order as the given parsers
 
-    This requires all the validators to be of the same type. `Parser.any()` can be useful for
+    This requires all the parsers to be of the same type. `Parser.any()` can be useful for
     achieving this, but you lose static type checking. Alternatively you can use `VldMap` to map
     the types.
 
@@ -312,16 +312,16 @@ class Seq(Parser[List[T]]):
     for the upcasting.
     """
 
-    validators: List[Parser[T]]
+    parsers: List[Parser[T]]
 
-    def __init__(self, validators: List[Parser[T]]) -> None:
-        assert validators, "VldSeq: expected at least one parser"
-        self.validators = validators
+    def __init__(self, parsers: List[Parser[T]]) -> None:
+        assert parsers, "VldSeq: expected at least one parser"
+        self.parsers = parsers
 
     def parse(self, args: List[str]) -> ParseResult[List[T]]:
         results: List[T] = []
         total_processed = 0
-        for index, parser in enumerate(self.validators):
+        for index, parser in enumerate(self.parsers):
             result = parser.parse(args)
             if isinstance(result, ParseFail):
                 return ParseFail(f"{result.message} while parsing argument {index + 1}")
@@ -333,15 +333,15 @@ class Seq(Parser[List[T]]):
         return ParseOK(results, processed=total_processed)
 
 class OneOf(Parser[T]):
-    validators: List[Parser[T]]
+    parsers: List[Parser[T]]
 
-    def __init__(self, validators: List[Parser[T]]) -> None:
-        self.validators = validators
+    def __init__(self, parsers: List[Parser[T]]) -> None:
+        self.parsers = parsers
 
     def parse(self, args: List[str]) -> ParseResult[T]:
         if len(args) == 0:
             return ParseFail("No argument provided")
-        for parser in self.validators:
+        for parser in self.parsers:
             result = parser.parse(args)
             if isinstance(result, ParseOK):
                 return result
@@ -392,24 +392,24 @@ class Delayed(Parser[T]):
         return self.parser().parse(args)
 
 class SomeOf(Parser[List[T]]):
-    """Validates a sequence of values with given validators, but the order of the values can be anything
+    """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely."""
 
-    validators: List[Parser[T]]
+    parsers: List[Parser[T]]
 
-    def __init__(self, validators: List[Parser[T]]) -> None:
-        assert validators, "VldSeq: expected at least one parser"
-        self.validators = validators
+    def __init__(self, parsers: List[Parser[T]]) -> None:
+        assert parsers, "VldSeq: expected at least one parser"
+        self.parsers = parsers
 
     def parse(self, args: List[str]) -> ParseResult[List[T]]:
-        validators = self.validators
+        parsers = self.parsers
         total_processed = 0
         any_matched = True
         results: List[T] = []
         while any_matched:
             any_matched = False
-            next_validators: List[Parser[T]] = []
-            for parser in validators:
+            next_parsers: List[Parser[T]] = []
+            for parser in parsers:
                 result = parser.parse(args)
                 if isinstance(result, ParseOK):
                     results.append(result.value)
@@ -417,8 +417,8 @@ class SomeOf(Parser[List[T]]):
                     args = args[result.processed:]
                     any_matched = True
                 else:
-                    next_validators.append(parser)
-            validators = next_validators
+                    next_parsers.append(parser)
+            parsers = next_parsers
         return ParseOK(results, processed=total_processed)
 
 class HourMinute(Parser[Tuple[int, int]]):
