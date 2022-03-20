@@ -126,7 +126,7 @@ class AppState(StateElement):
         state["control"]["require_bang"] = str(self.app.control.require_bang)
 
 ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
-def valid_climate(app: "App") -> p.Parser[ClimateArgs]:
+def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
     return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app.tesla))),
                       p.Empty())
 
@@ -138,7 +138,8 @@ def valid_info(app: "App") -> p.Parser[InfoArgs]:
 CommandWithArgs = List[str]
 def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     cmds = [
-        p.Adjacent(p.FixedStr("climate"), valid_climate(app)).any(),
+        p.Adjacent(p.FixedStr("climate"), valid_on_off_vehicle(app)).any(),
+        p.Adjacent(p.FixedStr("sauna"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
     ]
     return p.CaptureOnly(p.OneOf(cmds))
@@ -187,7 +188,9 @@ class App(ControlCallback):
         self._commands.register(c.Function("vehicles", "List vehicles",
                                            p.Empty(), self._command_vehicles))
         self._commands.register(c.Function("climate", "climate on|off [vehicle] - control climate",
-                                           valid_climate(self), self._command_climate))
+                                           valid_on_off_vehicle(self), self._command_climate))
+        self._commands.register(c.Function("sauna", "sauna on|off [vehicle] - max defrost on/off",
+                                           valid_on_off_vehicle(self), self._command_sauna))
         self._commands.register(c.Function("info", "info [vehicle] - Show vehicle location, temperature, etc",
                                            valid_info(self), self._command_info))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
@@ -481,6 +484,14 @@ class App(ControlCallback):
         logger.debug(f"Sending {command}")
         def call(vehicle: teslapy.Vehicle) -> Any:
             return vehicle.command(command)
+        await self._command_on_vehicle(context, vehicle_name, call)
+
+    async def _command_sauna(self, context: CommandContext, args: ClimateArgs) -> None:
+        (mode, vehicle_name), _ = args
+        command = "MAX_DEFROST"
+        logger.debug(f"Sending {command} {mode}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command, on=mode)
         await self._command_on_vehicle(context, vehicle_name, call)
 
     async def run(self) -> None:
