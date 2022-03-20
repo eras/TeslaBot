@@ -18,7 +18,7 @@ FROM debian:bullseye-slim
 RUN apt-get update && \
   DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt-get install -y python3-minimal && \
   rm -rf /var/lib/dpkg /var/lib/apt /var/cache/apt /usr/share/doc /build
-COPY --from=builder /usr/local/lib/python3.9/ /usr/local/lib/python3.9/
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
 WORKDIR /data
 RUN echo; python3 -m teslabot --version; echo
 
