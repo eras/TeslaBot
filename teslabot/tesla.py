@@ -441,9 +441,10 @@ class App(ControlCallback):
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
 
-
-    async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
-        (mode, vehicle_name), _ = args
+    async def _command_on_vehicle(self,
+                                  context: CommandContext,
+                                  vehicle_name: Optional[str],
+                                  fn: Callable[[teslapy.Vehicle], None]) -> None:
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         num_retries = 0
@@ -452,12 +453,10 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(), f"Sending command")
         while num_retries < 5:
             try:
-                command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
-                logger.debug(f"Sending {command}")
                 # https://github.com/python/mypy/issues/9590
                 def call() -> Any:
-                    vehicle.command(command)
-                result = to_async(call)
+                    return fn(vehicle)
+                result = await to_async(call)
                 error = None
                 break
             except teslapy.VehicleError as exn:
@@ -475,6 +474,14 @@ class App(ControlCallback):
         else:
             assert result
             await self.control.send_message(context.to_message_context(), f"Success: {result}")
+
+    async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
+        (mode, vehicle_name), _ = args
+        command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
+        logger.debug(f"Sending {command}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command)
+        await self._command_on_vehicle(context, vehicle_name, call)
 
     async def run(self) -> None:
         await self._scheduler.start()
