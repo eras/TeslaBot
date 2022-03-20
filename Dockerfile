@@ -10,10 +10,8 @@ WORKDIR /build
 
 COPY requirements.txt requirements-slack.txt requirements-matrix.txt /build/
 RUN pip install -r requirements.txt -r requirements-slack.txt -r requirements-matrix.txt
-COPY README.md setup.py setup.cfg versioneer.py /build/
-RUN apt-get purge -y libssl-dev libolm-dev libffi-dev gcc && apt-get autoremove -y
 COPY .git /build/.git/
-RUN git reset --hard && git clean -d -x -f && pip install .[slack,matrix] && apt-get purge -y python3-pip
+RUN git reset --hard && pip install .[slack,matrix]
 
 FROM debian:bullseye-slim
 
