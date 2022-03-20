@@ -54,7 +54,7 @@ class MatrixControl(control.Control):
         self._state = env.state
         self._init_done = asyncio.Event()
 
-        store_path = self._config.config["matrix"]["store_path"]
+        store_path = self._config.get("matrix", "store_path")
         try:
             os.makedirs(store_path)
         except OSError as e:
@@ -64,9 +64,9 @@ class MatrixControl(control.Control):
         self._pending_event_handlers = []
 
         self._state.add_element(StateSave(self))
-        self._client = AsyncClient(self._config.config["matrix"]["homeserver"],
-                                  self._config.config["matrix"]["mxid"],
-                                  store_path=store_path)
+        self._client = AsyncClient(self._config.get("matrix", "homeserver"),
+                                   self._config.get("matrix", "mxid"),
+                                   store_path=store_path)
         self._logged_in = False
         self._sync_token = None
         if "sync_token" in self._state.state["matrix"] is not None and \
@@ -82,8 +82,8 @@ class MatrixControl(control.Control):
         self._admin_room_id = admin_room_id
 
     async def setup(self) -> None:
-        mx_config = self._config.config["matrix"] if "matrix" in "matrix" in self._config.config else None
-        mx_state = self._state.state["matrix"] if "matrix" in "matrix" in self._state.state else None
+        mx_config = self._config["matrix"] if self._config.has_section("matrix") else None
+        mx_state = self._state.state["matrix"] if "matrix" in self._state.state else None
         if mx_config is None:
             logger.error(f"Cannot setup matrix due to missing configuration")
             return
@@ -91,8 +91,8 @@ class MatrixControl(control.Control):
             self._logged_in = True
             logger.debug(f"Using pre-existing credentials")
             self._client.restore_login(user_id=mx_config["mxid"],
-                                      device_id=mx_state["device_id"],
-                                      access_token=mx_state["access_token"])
+                                       device_id=mx_state["device_id"],
+                                       access_token=mx_state["access_token"])
         else:
             logger.debug(f"Logging in")
             login = await self._client.login(mx_config["password"])
@@ -192,7 +192,7 @@ class MatrixControl(control.Control):
             logger.debug(f"after_first_sync synced wait")
             await self._client.synced.wait()
             logger.debug(f"after_first_sync synced wait done")
-            for mxid in self._config.config["matrix"]["trust_mxids"].split(","):
+            for mxid in self._config["matrix"]["trust_mxids"].split(","):
                 # TODO: implement proper verification, trusting just mxids in particular is not safe
                 self.trust_devices(mxid)
             self._init_done.set()

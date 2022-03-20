@@ -34,28 +34,32 @@ async def async_main() -> None:
         return
 
     logger.info("Starting")
-    config_      = config.Config(filename=args.config)
-    state_       = state.State(filename=config_.config["common"]["state_file"])
-    control_name = config_.config["common"]["control"]
-    env          = Env(config=config_,
-                       state=state_)
-    if control_name == "matrix":
-        from . import matrix
-        control_ : control.Control = matrix.MatrixControl(env)
-        matrix.logger.setLevel(log.INFO)
-    elif control_name == "slack":
-        from . import slack
-        control_ = slack.SlackControl(env=env)
-        slack.logger.setLevel(log.DEBUG)
-    else:
-        logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
-        return
-    app = tesla.App(env=env, control=control_)
-    await control_.setup()
-    asyncio.create_task(control_.run())
-    asyncio.create_task(app.run())
-    while True:
-        await asyncio.sleep(3600)
+    try:
+        config_      = config.Config(filename=args.config)
+        state_       = state.State(filename=config_.get("common", "state_file"))
+        control_name = config_.get("common", "control")
+        env          = Env(config=config_,
+                           state=state_)
+        if control_name == "matrix":
+            from . import matrix
+            control_ : control.Control = matrix.MatrixControl(env)
+            matrix.logger.setLevel(log.INFO)
+        elif control_name == "slack":
+            from . import slack
+            control_ = slack.SlackControl(env=env)
+            slack.logger.setLevel(log.DEBUG)
+        else:
+            logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
+            return
+        app = tesla.App(env=env, control=control_)
+        await control_.setup()
+        asyncio.create_task(control_.run())
+        asyncio.create_task(app.run())
+        while True:
+            await asyncio.sleep(3600)
+    except config.ConfigException as exn:
+        logger.fatal(f"Configuration error: {exn.args[0]}")
+        raise SystemExit(1)
 
 def main() -> None:
     asyncio.get_event_loop().run_until_complete(async_main())

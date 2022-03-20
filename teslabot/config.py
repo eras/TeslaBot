@@ -1,10 +1,16 @@
 import argparse
-from configparser import ConfigParser
-from typing import cast, List
+from configparser import ConfigParser, SectionProxy
+from typing import cast, List, Optional, Union
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-class ConfigFileNotFoundError(Exception):
+class ConfigException(Exception):
+    pass
+
+class ConfigFileNotFoundError(ConfigException):
+    pass
+
+class ConfigNotFound(ConfigException):
     pass
 
 @dataclass
@@ -19,13 +25,48 @@ def get_args() -> Args:
     parser.add_argument('--version', action='store_true', help="Show version")
     return cast(Args, parser.parse_args())
 
+class Section:
+    section_name: str
+    section: SectionProxy
+    def __init__(self, section_name: str, section: SectionProxy):
+        self.section_name = section_name
+        self.section = section
+
+    def get(self,
+            key: str,
+            fallback: Optional[str] = None,
+            empty_is_none: bool = True) -> str:
+        found = key in self.section
+        value = self.section[key] if found else fallback
+        if value is None or (empty_is_none and value == ""):
+            if found:
+                raise ConfigNotFound(f"Empty value not permitted for {self.section_name}.{key} in config")
+            else:
+                raise ConfigNotFound(f"Cannot find {self.section_name}.{key} in config")
+        else:
+            return value
+
+    def __getitem__(self, key: str) -> str:
+        return self.get(key)
+
 class Config:
     filename: str
-    config: ConfigParser
+    _config: ConfigParser
 
     def __init__(self,
                  filename: str) -> None:
         self.filename = filename
-        self.config = ConfigParser()
-        if not self.config.read(filename):
+        self._config = ConfigParser()
+        if not self._config.read(filename):
             raise ConfigFileNotFoundError(f"Cannot open config file {filename}")
+
+    def __getitem__(self, section: str) -> Section:
+        return Section(section, self._config[section])
+
+    def has_section(self, key: str) -> bool:
+        return self._config.has_section(key)
+
+    def get(self, section: str, key: str,
+            fallback: Optional[str] = None,
+            empty_is_none: bool = True) -> str:
+        return Section(section, self._config[section]).get(key, fallback=fallback, empty_is_none=empty_is_none)
