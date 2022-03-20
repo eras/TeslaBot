@@ -139,6 +139,7 @@ CommandWithArgs = List[str]
 def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     cmds = [
         p.Adjacent(p.FixedStr("climate"), valid_on_off_vehicle(app)).any(),
+        p.Adjacent(p.FixedStr("ac"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("sauna"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
     ]
@@ -188,6 +189,8 @@ class App(ControlCallback):
         self._commands.register(c.Function("vehicles", "List vehicles",
                                            p.Empty(), self._command_vehicles))
         self._commands.register(c.Function("climate", "climate on|off [vehicle] - control climate",
+                                           valid_on_off_vehicle(self), self._command_climate))
+        self._commands.register(c.Function("ac", "ac on|off [vehicle] - same as climate",
                                            valid_on_off_vehicle(self), self._command_climate))
         self._commands.register(c.Function("sauna", "sauna on|off [vehicle] - max defrost on/off",
                                            valid_on_off_vehicle(self), self._command_sauna))

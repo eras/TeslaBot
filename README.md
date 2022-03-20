@@ -125,6 +125,7 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 | !help                       | Show the list of commands supported                                                                   |
 | !climate on [name]          | Sets climate on. Needs vehicle name if you have more than one Tesla.                                  |
 | !climate off [name]         | Sets climate off.                                                                                     |
+| !ac on/off [name]           | Same as !climate.                                                                                     |
 | !sauna on/off [name]        | Sets max defrost on/off.                                                                              |
 | !info [name]                | Show information about the device, such as about location, climate and charging                       |
 | !at 06:00 command           | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future. |
