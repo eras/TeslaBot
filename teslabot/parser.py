@@ -260,29 +260,100 @@ class Tag(Map[T, Tuple[TagT, T]]):
         super().__init__(parser, map=mapping)
         self.tag = tag
 
+def try_parses(parses: List[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
+    value = None
+    for parse in parses:
+        value = parse()
+        if isinstance(value, ParseOK):
+            return value
+    assert value
+    return value
+
 class Adjacent(Parser[Tuple[T1, T2]]):
-    """Parses two values in the same order as the given parsers"""
+    """Parses two values in the same order as the given parsers
+
+    It tries all combinations and prefers longest matches. E.g.  for
+    [1, 2, 3] the left parser will be tried for all [1, 2, 3], [1, 2],
+    [1] and [] and if some of these matches, then try the right parser.
+
+    Similarly in right priority mode it first tries [1, 2, 3], [2, 3],
+    [3], and [], and left parser for the result. However, the left
+    parser must consume all between the left and the right parser.
+    """
 
     parser_left: Parser[T1]
     parser_right: Parser[T2]
+    right_priority: bool
 
     def __init__(self,
                  parser_left: Parser[T1],
-                 parser_right: Parser[T2]) -> None:
+                 parser_right: Parser[T2],
+                 right_priority: bool = False) -> None:
         self.parser_left = parser_left
         self.parser_right = parser_right
+        self.right_priority = right_priority
 
     def parse(self, args: List[str]) -> ParseResult[Tuple[T1, T2]]:
-        left = self.parser_left.parse(args)
-        if isinstance(left, ParseFail):
-            return ParseFail(f"{left.message} while parsing first argument")
-        assert(isinstance(left, ParseOK))
-        remaining = args[left.processed:]
-        right = self.parser_right.parse(remaining)
-        if isinstance(right, ParseFail):
-            return ParseFail(f"{right.message} while parsing second argument")
-        assert(isinstance(right, ParseOK))
-        return ParseOK((left.value, right.value), processed=left.processed + right.processed)
+        def right_priority() -> ParseResult[Tuple[T1, T2]]:
+            def try_with_right(sub_args: List[str], require_max_len: bool) -> ParseResult[Tuple[T1, T2]]:
+                # For all sequences of length [0..len(args)[ find the longest one that can be parsed
+                # sequentially by the two parsers provided. O(n^2).
+                while True:
+                    # find the longest sequence from the right that is parsed by parser_right that consumes
+                    # all of the sequence
+                    found_max_len = None
+                    right = None
+                    for max_len in range(len(sub_args), -1, -1):
+                        right = self.parser_right.parse(sub_args[len(sub_args) - max_len:])
+                        if isinstance(right, ParseOK) and (not require_max_len or right.processed == max_len):
+                            found_max_len = max_len
+                            break
+
+                    if found_max_len is not None:
+                        assert isinstance(right, ParseOK)
+                        left = self.parser_left.parse(sub_args[0:len(sub_args) - found_max_len])
+                        if isinstance(left, ParseFail):
+                            return ParseFail(f"{left.message} while parsing left argument")
+                        assert isinstance(left, ParseOK)
+                        # there must be no gap between left and right parses
+                        if left.processed == len(sub_args) - found_max_len:
+                            break
+                    if sub_args == []:
+                        return ParseFail(f"No adjacent arguments parsed completely")
+                    sub_args = sub_args[0:len(sub_args) - 1]
+                return ParseOK((left.value, right.value), processed=left.processed + right.processed)
+            return try_parses([lambda: try_with_right(args, True),
+                               lambda: try_with_right(args, False)])
+
+        def left_priority() -> ParseResult[Tuple[T1, T2]]:
+            def try_with_left(sub_args: List[str], require_max_len: bool) -> ParseResult[Tuple[T1, T2]]:
+                while True:
+                    found_max_len = None
+                    left = None
+                    for max_len in range(len(sub_args), -1, -1):
+                        left = self.parser_left.parse(sub_args[0:max_len])
+                        if isinstance(left, ParseOK) and (not require_max_len or left.processed == max_len):
+                            found_max_len = left.processed
+                            break
+
+                    if found_max_len is not None:
+                        assert isinstance(left, ParseOK)
+                        right = self.parser_right.parse(sub_args[found_max_len:])
+                        if isinstance(right, ParseFail):
+                            return ParseFail(f"{right.message} while parsing right argument")
+                        assert isinstance(right, ParseOK)
+                        break
+                    if sub_args == []:
+                        return ParseFail(f"No adjacent arguments parsed completely")
+                    sub_args = sub_args[0:len(sub_args) - 1]
+                return ParseOK((left.value, right.value), processed=left.processed + right.processed)
+            return try_parses([lambda: try_with_left(args, True),
+                               lambda: try_with_left(args, False)])
+
+        if self.right_priority:
+            return right_priority()
+        else:
+            return left_priority()
 
 class Remaining(Parser[T]):
     """Requires the underlying parser to parse all provided data, otherwise returns ParseFail"""
@@ -300,6 +371,11 @@ class Remaining(Parser[T]):
                 return ParseFail("Extraneous input after command")
         else:
             return result
+
+class Concat(Parser[str]):
+    """Takes all provided input strings and concatenates them to one string"""
+    def parse(self, args: List[str]) -> ParseResult[str]:
+        return ParseOK(' '.join(args), processed=len(args))
 
 class Seq(Parser[List[T]]):
     """Parser a sequence of values in the same order as the given parsers

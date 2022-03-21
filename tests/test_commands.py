@@ -155,32 +155,110 @@ class TestCommands(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
                                            p.Bool()).parse([]),
-                             p.ParseFail("No argument provided while parsing first argument"))
+                             p.ParseFail("No adjacent arguments parsed completely"))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Bool(),
+                                        right_priority=True).parse([]),
+                             p.ParseFail("No adjacent arguments parsed completely"))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
                                            p.Bool()).parse(["moi"]),
-                             p.ParseFail('Invalid argument "moi" for boolean while parsing first argument'))
+                             p.ParseFail("No adjacent arguments parsed completely"))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
-                                           p.Bool()).parse(["moi", "1"]),
-                             p.ParseFail('Invalid argument "moi" for boolean while parsing first argument'))
+                                        p.Bool(),
+                                        right_priority=True).parse(["moi"]),
+                             p.ParseFail("No adjacent arguments parsed completely"))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
-                                           p.Bool()).parse(["1"]),
-                             p.ParseFail("No argument provided while parsing second argument"))
+                                        p.Bool()).parse(["moi", "1"]),
+                             p.ParseFail("No adjacent arguments parsed completely"))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
-                                           p.Bool()).parse(["1", "moi"]),
-                             p.ParseFail('Invalid argument "moi" for boolean while parsing second argument'))
+                                        p.Bool(),
+                                        right_priority=True).parse(["moi", "1"]),
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing left argument'))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
-                                           p.Bool()).parse(["1", "0"]),
-                             p.ParseOK((True, False), processed=2))
+                                        p.Bool()).parse(["1"]),
+                             p.ParseFail("No argument provided while parsing right argument"))
         with self.subTest():
             self.assertEqual(p.Adjacent(p.Bool(),
-                                           p.Adjacent(p.Bool(),
-                                                         p.Empty())).parse(["1", "0"]),
-                             p.ParseOK((True, (False, ())), processed=2))
+                                        p.Bool(),
+                                        right_priority=True).parse(["1"]),
+                             p.ParseFail("No argument provided while parsing left argument"))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Bool()).parse(["1", "moi"]),
+                             # not optimal.. we should have a flag for requiring non-empty parse attempts?
+                             # or just choose an error from one if possible?
+                             p.ParseFail('Invalid argument "moi" for boolean while parsing right argument'))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Bool(),
+                                        right_priority=True).parse(["1", "moi"]),
+                             # confusing? but correct, I suppose it tried right(["1", "moi"]) which was
+                             # partial parse and then there was nothing to parse on the left. parsing
+                             # right(["moi"]) failed do left parser was never tried for that.
+                             p.ParseFail("No argument provided while parsing left argument"))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Bool()).parse(["0", "1"]),
+                             p.ParseOK((False, True), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Bool(),
+                                        right_priority=True).parse(["0", "1"]),
+                             p.ParseOK((False, True), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Adjacent(p.Bool(),
+                                                   p.Empty())).parse(["0", "1"]),
+                             p.ParseOK((False, (True, ())), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Bool(),
+                                        p.Adjacent(p.Bool(),
+                                                   p.Empty()),
+                                        right_priority=True).parse(["0", "1"]),
+                             p.ParseOK((False, (True, ())), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
+                                        p.Remaining(p.Concat()),
+                                        right_priority=False).parse(["0", "1"]),
+                             p.ParseOK(("0 1", ""), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
+                                        p.Remaining(p.Concat()),
+                                        right_priority=True).parse(["0", "1"]),
+                             p.ParseOK(("", "0 1"), processed=2))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
+                                        p.Remaining(p.Concat()),
+                                        right_priority=True).parse(["0", "1", "2"]),
+                             p.ParseOK(("", "0 1 2"), processed=3))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
+                                        p.Remaining(p.AnyStr()),
+                                        right_priority=True).parse(["0", "1", "2"]),
+                             p.ParseOK(("0 1", "2"), processed=3))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.Remaining(p.Concat()),
+                                        p.Remaining(p.Optional_(p.AnyStr())),
+                                        right_priority=True).parse(["0", "1", "2"]),
+                             p.ParseOK(("0 1", "2"), processed=3))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.ValidOrMissing(p.AnyStr()),
+                                        p.Empty()).parse([]),
+                             p.ParseOK((None, ()), processed=0))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.ValidOrMissing(p.AnyStr()),
+                                        p.Empty()).parse(["0"]),
+                             p.ParseOK(("0", ()), processed=1))
+        with self.subTest():
+            self.assertEqual(p.Adjacent(p.ValidOrMissing(p.AnyStr()),
+                                        p.Empty()).parse(["0", "1"]),
+                             p.ParseFail("Expected no more arguments while parsing right argument"))
 
     def test_remaining(self) -> None:
         with self.subTest():
