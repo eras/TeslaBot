@@ -8,6 +8,7 @@ import traceback
 import json
 from enum import Enum
 import math
+import time
 
 import teslapy
 from urllib.error import HTTPError
@@ -135,6 +136,12 @@ def valid_info(app: "App") -> p.Parser[InfoArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
 
+ShareArgs = Tuple[Tuple[str, Optional[str]], Tuple[()]]
+def valid_share(app: "App") -> p.Parser[ShareArgs]:
+    return p.Adjacent(p.Adjacent(p.Concat(),
+                                 p.ValidOrMissing(ValidVehicle(app.tesla))),
+                      p.Empty())
+
 CommandWithArgs = List[str]
 def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     cmds = [
@@ -142,6 +149,7 @@ def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
         p.Adjacent(p.FixedStr("ac"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("sauna"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
+        p.Adjacent(p.FixedStr("share"), valid_share(app)).any(),
     ]
     return p.CaptureOnly(p.OneOf(cmds))
 
@@ -202,6 +210,8 @@ class App(ControlCallback):
                                            p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
                                            p.Empty(), self._command_ls))
+        self._commands.register(c.Function("share", "Share an address on an URL with the vehicle",
+                                           valid_share(self), self._command_share))
         self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
                                            p.Remaining(LocationArgsParser(self.locations)), self.locations.command))
         self._commands.register(c.Function("help", "Show help",
@@ -246,6 +256,20 @@ class App(ControlCallback):
                                                 f"{command_context.txn} Exception :(")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
+
+    async def _command_share(self, context: CommandContext, args: ShareArgs) -> None:
+        (url_or_address, vehicle_name), _ = args
+        command = "SEND_TO_VEHICLE"
+        logger.debug(f"Sending {command}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command,
+                                   type="share_ext_content_raw",
+                                   #locale="en-US",
+                                   locale="fi", # https://www.andiamo.co.uk/resources/iso-language-codes/
+                                   timestamp_ms=int(time.time()),
+                                   value={"android.intent.extra.TEXT": url_or_address})
+        await self._command_on_vehicle(context, vehicle_name, call)
+        pass
 
     async def _command_set(self, context: CommandContext, args: SetArgs) -> None:
         await args(context)
