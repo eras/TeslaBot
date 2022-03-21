@@ -384,7 +384,7 @@ class App(ControlCallback):
         near = nearest and location.km_to(nearest) < DISTANCE_THRESHOLD_KM
         if self.location_detail == LocationDetail.Full:
             # show precise location information
-            st = f"{location}"
+            st = f"{location} {location.url()}"
             if nearest_name is not None:
                 st += f" near {nearest_name}"
             return st
@@ -392,7 +392,7 @@ class App(ControlCallback):
             if self.location_detail == LocationDetail.Near:
                 # show precise location is near some predefined location
                 if near:
-                    return f"{location} near {nearest_name}"
+                    return f"{location} {location.url()} near {nearest_name}"
                 else:
                     return f""
             elif self.location_detail == LocationDetail.At:

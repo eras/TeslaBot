@@ -62,6 +62,9 @@ class Location:
         distance = R * c
         return distance
 
+    def url(self) -> str:
+        return f"https://www.openstreetmap.org/?mlat={self.lat}&mlon={self.lon}"
+
 LocationAddArgsValue = \
     p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(),
                                      p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)$", [1, 3])),
