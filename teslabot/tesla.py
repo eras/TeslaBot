@@ -141,6 +141,11 @@ def valid_info(app: "App") -> p.Parser[InfoArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
 
+LockUnlockArgs = Tuple[Optional[str], Tuple[()]]
+def valid_lock_unlock(app: "App") -> p.Parser[LockUnlockArgs]:
+    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
+                      p.Empty())
+
 ShareArgs = Tuple[Tuple[str, Optional[str]], Tuple[()]]
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
     return p.Adjacent(p.Adjacent(p.Concat(),
@@ -154,6 +159,8 @@ def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
         p.Adjacent(p.FixedStr("ac"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("sauna"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
+        p.Adjacent(p.FixedStr("lock"), valid_lock_unlock(app)).any(),
+        p.Adjacent(p.FixedStr("unlock"), valid_lock_unlock(app)).any(),
         p.Adjacent(p.FixedStr("share"), valid_share(app)).any(),
     ]
     return p.CaptureOnly(p.OneOf(cmds))
@@ -209,6 +216,10 @@ class App(ControlCallback):
                                            valid_on_off_vehicle(self), self._command_sauna))
         self._commands.register(c.Function("info", "info [vehicle] - Show vehicle location, temperature, etc",
                                            valid_info(self), self._command_info))
+        self._commands.register(c.Function("lock", "lock [vehicle] - Lock vehicle doors",
+                                           valid_lock_unlock(self), self._command_lock))
+        self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
+                                           valid_lock_unlock(self), self._command_unlock))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
                                            p.Remaining(p.Adjacent(p.HourMinute(), valid_schedulable(self))), self._command_at))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
@@ -496,6 +507,22 @@ class App(ControlCallback):
                                             message)
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
+
+    async def _command_lock(self, context: CommandContext, args: LockUnlockArgs) -> None:
+        vehicle_name, _ = args
+        command = "LOCK"
+        logger.debug(f"Sending {command}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command)
+        await self._command_on_vehicle(context, vehicle_name, call)
+
+    async def _command_unlock(self, context: CommandContext, args: LockUnlockArgs) -> None:
+        vehicle_name, _ = args
+        command = "UNLOCK"
+        logger.debug(f"Sending {command}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command)
+        await self._command_on_vehicle(context, vehicle_name, call)
 
     async def _command_on_vehicle(self,
                                   context: CommandContext,
