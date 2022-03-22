@@ -162,15 +162,23 @@ class Locations(StateElement):
         if not "locations" in state:
             state["locations"] = {}
         locations = state["locations"]
+        locations.clear()
         for name, location in self.locations.items():
-            locations[name] = json.dumps(location.json())
+            locations[name] = json.dumps({"name": name, "location": location.json()})
 
     def load(self) -> None:
         if not self.state.state.has_section("locations"):
             return
         for name, location in self.state.state["locations"].items():
-            self.locations[name] = Location.from_json(json.loads(location))
-            self.canonical_to_orig[self._canonical(name)] = name
+            if "location" in location:
+                data = json.loads(location)
+                orig_name = data["name"]
+                location_data = data["location"]
+            else:
+                orig_name = name
+                location_data = json.loads(location)
+            self.locations[orig_name] = Location.from_json(location_data)
+            self.canonical_to_orig[self._canonical(orig_name)] = orig_name
 
     def _canonical(self, name: str) -> str:
         return name.lower()
