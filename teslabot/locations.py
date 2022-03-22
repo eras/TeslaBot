@@ -85,7 +85,7 @@ def LocationArgsParser(locations: "Locations") -> p.Parser[LocationArgs]:
 class Locations(StateElement):
     locations: Dict[Name, Location]
 
-    canonical_names: Dict[str, str]
+    canonical_to_orig: Dict[str, str]
     """Maps from canonical names to real names. Used to detect duplicates also."""
 
     state: State
@@ -93,7 +93,7 @@ class Locations(StateElement):
 
     def __init__(self, state: State) -> None:
         self.locations = {}
-        self.canonical_names = {}
+        self.canonical_to_orig = {}
         self.state = state
         state.add_element(self)
 
@@ -170,25 +170,25 @@ class Locations(StateElement):
             return
         for name, location in self.state.state["locations"].items():
             self.locations[name] = Location.from_json(json.loads(location))
-            self.canonical_names[self._canonical(name)] = name
+            self.canonical_to_orig[self._canonical(name)] = name
 
     def _canonical(self, name: str) -> str:
         return name.lower()
 
     async def add(self, name: str, location: Location) -> None:
         canonical = self._canonical(name)
-        if canonical in self.canonical_names:
-            raise DuplicateLocationError(f"Already has location {self.canonical_names[canonical]}")
+        if canonical in self.canonical_to_orig:
+            raise DuplicateLocationError(f"Already has location {self.canonical_to_orig[canonical]}")
         self.locations[name] = location
-        self.canonical_names[canonical] = name
+        self.canonical_to_orig[canonical] = name
         await self.state.save()
 
     async def remove(self, name: str) -> None:
         canonical = self._canonical(name)
-        if canonical not in self.canonical_names:
+        if canonical not in self.canonical_to_orig:
             raise NoSuchLocationError(f"No location {name} to remove")
-        del self.locations[self.canonical_names[canonical]]
-        del self.canonical_names[canonical]
+        del self.locations[self.canonical_to_orig[canonical]]
+        del self.canonical_to_orig[canonical]
         await self.state.save()
 
     def nearest_location(self, location: Location) -> Tuple[Optional[str], Optional[Location]]:
