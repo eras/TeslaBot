@@ -74,12 +74,17 @@ class AppTimerInfoBase:
     def json(self) -> Any:
         return {"info": self.info.json()}
 
-class AppOneShot(scheduler.OneShot, AppTimerInfoBase):
+@dataclass
+class SchedulerContext:
+    # TODO
+    pass
+
+class AppOneShot(scheduler.OneShot[SchedulerContext], AppTimerInfoBase):
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
                  time: datetime.datetime,
                  info: AppTimerInfo) -> None:
-        scheduler.OneShot.__init__(self, callback, time)
+        scheduler.OneShot.__init__(self, callback, time, SchedulerContext())
         AppTimerInfoBase.__init__(self, info)
 
     def json(self) -> Any:
@@ -88,7 +93,7 @@ class AppOneShot(scheduler.OneShot, AppTimerInfoBase):
         return base
 
     @staticmethod
-    def from_json(id: int, json: Any, callback: Callable[[scheduler.Entry], Awaitable[None]]) -> scheduler.Entry:
+    def from_json(id: int, json: Any, callback: Callable[[scheduler.Entry[SchedulerContext]], Awaitable[None]]) -> scheduler.Entry[SchedulerContext]:
         async def indirect_callback() -> None:
             await callback(entry)
         entry = AppOneShot(callback=indirect_callback,
@@ -173,7 +178,7 @@ class App(ControlCallback):
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
     _set_commands: commands.Commands[CommandContext]
-    _scheduler: scheduler.Scheduler
+    _scheduler: scheduler.Scheduler[SchedulerContext]
     _scheduler_id: int
     locations: Locations
     location_detail: LocationDetail
@@ -337,13 +342,13 @@ class App(ControlCallback):
 
     async def _command_rm(self, context: CommandContext,
                           id: int) -> None:
-        def matches(entry: scheduler.Entry) -> bool:
+        def matches(entry: scheduler.Entry[SchedulerContext]) -> bool:
             if isinstance(entry, AppTimerInfoBase):
                 logger.debug(f"Comparing {entry.info.id} vs {id}")
                 return entry.info.id == id
             else:
                 return False
-        async def remove_entry(entries: List[scheduler.Entry]) -> Tuple[List[scheduler.Entry], bool]:
+        async def remove_entry(entries: List[scheduler.Entry[SchedulerContext]]) -> Tuple[List[scheduler.Entry[SchedulerContext]], bool]:
             new_entries = [entry for entry in entries if not matches(entry)]
             logger.debug(f"remove_entry: {entries} -> {new_entries}")
             return new_entries, len(new_entries) != len(entries)
@@ -371,7 +376,7 @@ class App(ControlCallback):
         if self.state.state.has_section("control"):
             self.control.require_bang = bool(self.state.state.get("control", "require_bang", fallback=str(self.control.require_bang)) == str(True))
 
-    async def _activate_timer(self, entry: scheduler.Entry) -> None:
+    async def _activate_timer(self, entry: scheduler.Entry[SchedulerContext]) -> None:
         if isinstance(entry, AppOneShot):
             command = entry.info.command
             logger.info(f"Timer {entry.info.id} activated")

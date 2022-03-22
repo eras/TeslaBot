@@ -7,12 +7,14 @@ import aiounittest
 import unittest
 import traceback
 import logging
-from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any, TypeVar
+from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any, TypeVar, Generic
 from typing_extensions import Protocol
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+Context = TypeVar('Context')
 
 def assert_some(x: Optional[T]) -> T:
     assert x is not None
@@ -22,12 +24,15 @@ class CallbackProtocol(Protocol):
     def __call__(self) -> Awaitable[None]:
         ...
 
-class Entry:
+class Entry(Generic[Context]):
     callback: CallbackProtocol
+    context: Context
 
     def __init__(self,
-                 callback: Callable[[], Awaitable[None]]) -> None:
+                 callback: Callable[[], Awaitable[None]],
+                 context: Context) -> None:
         self.callback = callback
+        self.context = context
 
     def when_is_next(self, now: float) -> Optional[float]:
         """When is next activation in unix time stamp after the given timestamp
@@ -35,13 +40,14 @@ class Entry:
 or None if no such activation is in this schedule"""
         return None
 
-class Daily(Entry):
+class Daily(Entry[Context]):
     time: datetime.time
 
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
-                 time: datetime.time) -> None:
-        super().__init__(callback)
+                 time: datetime.time,
+                 context: Context) -> None:
+        super().__init__(callback, context)
         self.time = time
 
     def when_is_next(self, now: float) -> Optional[float]:
@@ -60,13 +66,14 @@ or None if no such activation is in this schedule"""
     def __str__(self) -> str:
         return f"Daily at {self.time}" 
 
-class OneShot(Entry):
+class OneShot(Entry[Context]):
     time: datetime.datetime
 
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
-                 time: datetime.datetime) -> None:
-        super().__init__(callback)
+                 time: datetime.datetime,
+                 context: Context) -> None:
+        super().__init__(callback, context)
         self.time = time
 
     def when_is_next(self, now: float) -> Optional[float]:
@@ -90,15 +97,15 @@ async def default_sleep(delta: float, condition: asyncio.Condition) -> None:
         # The caller will need to determine if this has slept this interval in full
         pass
 
-class Scheduler:
+class Scheduler(Generic[Context]):
     now: TimeProtocol
     sleep: AsyncSleepProtocol
-    _entries: List[Entry]
+    _entries: List[Entry[Context]]
     _entries_cond: asyncio.Condition
     _task: Optional["asyncio.Task[None]"]
 
     def __init__(self) -> None:
-        self._entries = [] # type: List[Entry]
+        self._entries = [] # type: List[Entry[Context]]
         self._entries_cond = asyncio.Condition()
         self._task = None
         async def get_time() -> float:
@@ -119,8 +126,8 @@ class Scheduler:
         self._task = None
         logger.info(f"Stopped")
         
-    def get_earliest(self, now: float, blacklist: Tuple[float, List[Entry]] = (0.0, [])) -> Optional[Tuple[float, Entry]]:
-        earliest: Optional[Tuple[float, Entry]] = None
+    def get_earliest(self, now: float, blacklist: Tuple[float, List[Entry[Context]]] = (0.0, [])) -> Optional[Tuple[float, Entry[Context]]]:
+        earliest: Optional[Tuple[float, Entry[Context]]] = None
         for entry in self._entries:
             when = entry.when_is_next(now)
             if when is not None \
@@ -131,10 +138,10 @@ class Scheduler:
             
     async def _scheduler(self) -> None:
         try:
-            previously_activated: List[Entry] = []
+            previously_activated: List[Entry[Context]] = []
             previously_activate_time = 0.0
             while True:
-                earliest: List[Optional[Tuple[float, Entry]]] = [None]
+                earliest: List[Optional[Tuple[float, Entry[Context]]]] = [None]
                 now = await self.now()
                 async with self._entries_cond:
                     def grab_earliest() -> bool:
@@ -172,14 +179,14 @@ class Scheduler:
             traceback.print_exc()
             raise
 
-    async def get_entries(self) -> List[Entry]:
+    async def get_entries(self) -> List[Entry[Context]]:
         async with self._entries_cond:
             return self._entries[:]
 
-    async def with_entries(self, fn: Callable[[List[Entry]], Awaitable[Tuple[List[Entry], T]]]) -> T:
+    async def with_entries(self, fn: Callable[[List[Entry[Context]]], Awaitable[Tuple[List[Entry[Context]], T]]]) -> T:
         ret_value: List[Optional[T]] = [None]
         exn_value: List[Optional[Exception]] = [None]
-        async def op(entries: List[Entry]) -> List[Entry]:
+        async def op(entries: List[Entry[Context]]) -> List[Entry[Context]]:
             logger.debug(f"with_entries in {entries}")
             try:
                 entries, value = await fn(entries)
@@ -194,20 +201,20 @@ class Scheduler:
         else:
             return assert_some(ret_value[0])
 
-    async def add(self, entry: Entry) -> None:
-        async def adder(entries: List[Entry]) -> List[Entry]:
+    async def add(self, entry: Entry[Context]) -> None:
+        async def adder(entries: List[Entry[Context]]) -> List[Entry[Context]]:
             logger.info(f"Adding entry {entry}")
             entries.append(entry)
             return entries
         await self.update_entries(adder)
 
-    async def remove(self, entry: Entry) -> None:
-        async def remover(entries: List[Entry]) -> List[Entry]:
+    async def remove(self, entry: Entry[Context]) -> None:
+        async def remover(entries: List[Entry[Context]]) -> List[Entry[Context]]:
             logger.info(f"Removing entry {entry}")
             return [e for e in entries if e is not entry]
         await self.update_entries(remover)
 
-    async def update_entries(self, updater: Callable[[List[Entry]], Awaitable[List[Entry]]]) -> None:
+    async def update_entries(self, updater: Callable[[List[Entry[Context]]], Awaitable[List[Entry[Context]]]]) -> None:
         async with self._entries_cond:
             logger.info(f"Updating entries")
             self._entries = await updater(self._entries)
@@ -215,14 +222,14 @@ class Scheduler:
 
 class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
     def test_empty(self) -> None:
-        sch = Scheduler()
+        sch = Scheduler[None]()
         self.assertTrue(sch.get_earliest(0.0) is None)
         
     async def test_one1(self) -> None:
-        sch = Scheduler()
+        sch = Scheduler[None]()
         async def callable() -> None:
             return None
-        entry = Daily(callable, datetime.time.fromisoformat("00:00+00:00"))
+        entry = Daily(callable, datetime.time.fromisoformat("00:00+00:00"), None)
         await sch.add(entry)
 
         t0 = sch.get_earliest(0.0)
@@ -241,10 +248,10 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         self.assertTrue(t1[1] is entry)
        
     async def test_one2(self) -> None:
-        sch = Scheduler()
+        sch = Scheduler[None]()
         async def callable() -> None:
             return None
-        entry = Daily(callable, datetime.time.fromisoformat("04:00+00:00"))
+        entry = Daily(callable, datetime.time.fromisoformat("04:00+00:00"), None)
         await sch.add(entry)
         
         t0 = sch.get_earliest(2 * 3600.0)
@@ -270,12 +277,12 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         self.assertTrue(t2[1] is entry)
 
     async def test_two(self) -> None:
-        sch = Scheduler()
+        sch = Scheduler[None]()
         async def callable() -> None:
             return None
-        entry1 = Daily(callable, datetime.time.fromisoformat("00:00+00:00"))
+        entry1 = Daily(callable, datetime.time.fromisoformat("00:00+00:00"), None)
         await sch.add(entry1)
-        entry2 = Daily(callable, datetime.time.fromisoformat("01:00+00:00"))
+        entry2 = Daily(callable, datetime.time.fromisoformat("01:00+00:00"), None)
         await sch.add(entry2)
 
         t0 = sch.get_earliest(0.0)
@@ -338,7 +345,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         async def fake_now() -> float:
             #print(f"\"now\" is {now[0]}")
             return now[0]
-        sch = Scheduler()
+        sch = Scheduler[None]()
         sch.sleep = fake_sleep
         sch.now = fake_now
         
@@ -351,7 +358,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
 
         async def run_operations() -> None:
             #print("run operations")
-            await sch.add(Daily(callable, datetime.time.fromisoformat("01:00+00:00")))
+            await sch.add(Daily(callable, datetime.time.fromisoformat("01:00+00:00"), None))
             #print("done running operations")
         
         loop = asyncio.get_event_loop()
@@ -374,7 +381,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         async def fake_now() -> float:
             #print(f"\"now\" is {now[0]}")
             return now[0]
-        sch = Scheduler()
+        sch = Scheduler[None]()
         sch.sleep = fake_sleep
         sch.now = fake_now
 
@@ -389,8 +396,8 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         await sch.start()
 
         async def run_operations() -> None:
-            await sch.add(Daily(mk_callable("callable1"), datetime.time.fromisoformat("01:00+00:00")))
-            await sch.add(Daily(mk_callable("callable2"), datetime.time.fromisoformat("02:00+00:00")))
+            await sch.add(Daily(mk_callable("callable1"), datetime.time.fromisoformat("01:00+00:00"), None))
+            await sch.add(Daily(mk_callable("callable2"), datetime.time.fromisoformat("02:00+00:00"), None))
         
         loop = asyncio.get_event_loop()
         task = loop.create_task(run_operations())
