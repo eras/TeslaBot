@@ -88,7 +88,7 @@ class FixedStr(Parser[str]):
     fixed_string: str
 
     def __init__(self, fixed_string: str) -> None:
-        self.fixed_string = fixed_string.lower()
+        self.fixed_string = fixed_string
 
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
