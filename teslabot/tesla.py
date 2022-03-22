@@ -457,15 +457,36 @@ class App(ControlCallback):
             charge_limit        = data["charge_state"]["charge_limit_soc"]
             charge_rate         = data["charge_state"]["charge_rate"]
             time_to_full_charge = data["charge_state"]["time_to_full_charge"]
+            car_version         = data["vehicle_state"]["car_version"]
+            front_trunk_open    = data["vehicle_state"]["ft"] != 0
+            rear_trunk_open     = data["vehicle_state"]["rt"] != 0
+            locked              = data["vehicle_state"]["locked"]
+            front_driver_window = data["vehicle_state"]["fd_window"] != 0
+            front_passanger_window = data["vehicle_state"]["fp_window"] != 0
+            rear_driver_window  = data["vehicle_state"]["rd_window"] != 0
+            rear_passanger_window = data["vehicle_state"]["rp_window"] != 0
             odometer            = int(data["vehicle_state"]["odometer"])
             inside_temp         = data["climate_state"]["inside_temp"]
             outside_temp        = data["climate_state"]["outside_temp"]
-            message = f"{vehicle['display_name']}\n"
+            message = f"{vehicle['display_name']} version {car_version}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to limit: {format_hours(time_to_full_charge)}\n"
             message += f"Odometer: {odometer} {dist_unit}"
+            message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
+            if front_trunk_open:
+                message += f"\nFrunk open"
+            if rear_trunk_open:
+                message += f"\nTrunk open"
+            if front_driver_window:
+                message += f"\nFront driver window open"
+            if front_passanger_window:
+                message += f"\nFront passanger window open"
+            if rear_driver_window:
+                message += f"\nRear driver window open"
+            if rear_passanger_window:
+                message += f"\nRear passanger window open"
             await self.control.send_message(context.to_message_context(),
                                             message)
         except HTTPError as exn:
