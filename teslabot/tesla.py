@@ -492,6 +492,8 @@ class App(ControlCallback):
             except teslapy.VehicleError as exn:
                 logger.debug(f"Vehicle error: {exn}")
                 error = exn
+                if exn.args[0] != "could_not_wake_buses":
+                    break
             except HTTPError as exn:
                 logger.debug(f"HTTP error: {exn}")
                 error = exn
