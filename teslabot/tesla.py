@@ -67,41 +67,26 @@ class AppTimerInfo:
         return AppTimerInfo(id=id,
                             command=json["command"])
 
-class AppTimerInfoBase:
+@dataclass
+class SchedulerContext:
     info: AppTimerInfo
-
-    def __init__(self, info: AppTimerInfo) -> None:
-        self.info = info
 
     def json(self) -> Any:
         return {"info": self.info.json()}
 
-@dataclass
-class SchedulerContext:
-    # TODO
-    pass
+def timer_entry_to_json(entry: scheduler.Entry[SchedulerContext]) -> Any:
+    base = entry.context.json()
+    if isinstance(entry, scheduler.OneShot):
+        base["time"] = entry.time.isoformat()
+    return base
 
-class AppOneShot(scheduler.OneShot[SchedulerContext], AppTimerInfoBase):
-    def __init__(self,
-                 callback: Callable[[], Awaitable[None]],
-                 time: datetime.datetime,
-                 info: AppTimerInfo) -> None:
-        scheduler.OneShot.__init__(self, callback, time, SchedulerContext())
-        AppTimerInfoBase.__init__(self, info)
-
-    def json(self) -> Any:
-        base = AppTimerInfoBase.json(self)
-        base["time"] = self.time.isoformat()
-        return base
-
-    @staticmethod
-    def from_json(id: int, json: Any, callback: Callable[[scheduler.Entry[SchedulerContext]], Awaitable[None]]) -> scheduler.Entry[SchedulerContext]:
-        async def indirect_callback() -> None:
-            await callback(entry)
-        entry = AppOneShot(callback=indirect_callback,
-                           time=datetime.datetime.fromisoformat(json["time"]),
-                           info=AppTimerInfo.from_json(id, json["info"]))
-        return entry
+def timer_entry_from_json(id: int, json: Any, callback: Callable[[scheduler.Entry[SchedulerContext]], Awaitable[None]]) -> scheduler.Entry[SchedulerContext]:
+    async def indirect_callback() -> None:
+        await callback(entry)
+    entry = scheduler.OneShot(callback=indirect_callback,
+                              time=datetime.datetime.fromisoformat(json["time"]),
+                              context=SchedulerContext(info=AppTimerInfo.from_json(id, json["info"])))
+    return entry
 
 class LocationDetail(Enum):
     Full = "full"       # show precise location information
@@ -122,8 +107,7 @@ class AppState(StateElement):
         timers = state["tesla.timers"]
         timers.clear()
         for entry in entries:
-            if isinstance(entry, AppOneShot):
-                timers[str(entry.info.id)] = json.dumps(entry.json())
+            timers[str(entry.context.info.id)] = json.dumps(timer_entry_to_json(entry))
         if not "tesla" in state:
             state["tesla"] = {}
         state["tesla"]["location_detail"] = self.app.location_detail.value
@@ -322,8 +306,8 @@ class App(ControlCallback):
         if entries:
             result: List[str] = []
             for entry in entries:
-                if isinstance(entry, AppOneShot):
-                    info = entry.info
+                if isinstance(entry, scheduler.OneShot):
+                    info = entry.context.info
                     result.append(f"{info.id} {entry.time}: {' '.join(info.command)}")
             result_lines = "\n".join(result)
             await self.control.send_message(context.to_message_context(), f"Timers:\n{result_lines}")
@@ -359,11 +343,8 @@ class App(ControlCallback):
     async def _command_rm(self, context: CommandContext,
                           id: int) -> None:
         def matches(entry: scheduler.Entry[SchedulerContext]) -> bool:
-            if isinstance(entry, AppTimerInfoBase):
-                logger.debug(f"Comparing {entry.info.id} vs {id}")
-                return entry.info.id == id
-            else:
-                return False
+            logger.debug(f"Comparing {entry.context.info.id} vs {id}")
+            return entry.context.info.id == id
         async def remove_entry(entries: List[scheduler.Entry[SchedulerContext]]) -> Tuple[List[scheduler.Entry[SchedulerContext]], bool]:
             new_entries = [entry for entry in entries if not matches(entry)]
             logger.debug(f"remove_entry: {entries} -> {new_entries}")
@@ -381,7 +362,7 @@ class App(ControlCallback):
         if self.state.state.has_section("tesla.timers"):
             for id, timer in self.state.state["tesla.timers"].items():
                 self._scheduler_id = max(self._scheduler_id, int(id) + 1)
-                entry = AppOneShot.from_json(int(id), json.loads(timer), callback=self._activate_timer)
+                entry = timer_entry_from_json(int(id), json.loads(timer), callback=self._activate_timer)
                 await self._scheduler.add(entry)
         if self.state.state.has_section("tesla"):
             location_detail_value = self.state.state.get("tesla", "location_detail", fallback=LocationDetail.Full.value)
@@ -393,18 +374,16 @@ class App(ControlCallback):
             self.control.require_bang = bool(self.state.state.get("control", "require_bang", fallback=str(self.control.require_bang)) == str(True))
 
     async def _activate_timer(self, entry: scheduler.Entry[SchedulerContext]) -> None:
-        if isinstance(entry, AppOneShot):
-            command = entry.info.command
-            logger.info(f"Timer {entry.info.id} activated")
-            await self._scheduler.remove(entry)
-            await self.state.save()
-            context = CommandContext(admin_room=False, control=self.control)
-            await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
-            invocation = commands.Invocation(name=command[0], args=command[1:])
-            await self._commands.invoke(context, invocation)
-            await self._command_ls(context, ())
-        else:
-            logger.info(f"Unknown timer {entry} activated..")
+        info = entry.context.info
+        command = info.command
+        logger.info(f"Timer {info.id} activated")
+        await self._scheduler.remove(entry)
+        await self.state.save()
+        context = CommandContext(admin_room=False, control=self.control)
+        await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
+        invocation = commands.Invocation(name=command[0], args=command[1:])
+        await self._commands.invoke(context, invocation)
+        await self._command_ls(context, ())
 
     async def _command_at(self, context: CommandContext,
                           args: Tuple[Tuple[int, int], CommandWithArgs]) -> None:
@@ -418,7 +397,8 @@ class App(ControlCallback):
         while time < datetime.datetime.now():
             time += datetime.timedelta(days=1)
         scheduler_id = self._next_scheduler_id()
-        entry = AppOneShot(callback, time, AppTimerInfo(id=scheduler_id, command=command))
+        entry = scheduler.OneShot(callback, time,
+                                  SchedulerContext(info=AppTimerInfo(id=scheduler_id, command=command)))
         await self._scheduler.add(entry)
         await self.state.save()
         await self.control.send_message(context.to_message_context(),
