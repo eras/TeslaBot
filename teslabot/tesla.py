@@ -20,7 +20,7 @@ from .config import Config
 from .state import State, StateElement
 from . import commands
 from . import parser as p
-from .utils import assert_some, indent, call_with_delay_info
+from .utils import assert_some, indent, call_with_delay_info, coalesce
 from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgsParser
@@ -31,7 +31,7 @@ logger = log.getLogger(__name__)
 
 T = TypeVar('T')
 
-DISTANCE_THRESHOLD_KM = 0.5
+DEFAULT_NEAR_THRESHOLD_KM = 0.5
 
 class AppException(Exception):
     pass
@@ -163,6 +163,12 @@ def format_hours(hours: float) -> str:
     h = math.floor(hours)
     m = math.floor((hours % 1.0) * 60.0)
     return f"{h}h{m}m"
+
+def format_km(km: float) -> str:
+    if km < 1:
+        return f"{km * 1000:.0f} m"
+    else:
+        return f"{km:.2f} km"
 
 class App(ControlCallback):
     control: Control
@@ -406,31 +412,36 @@ class App(ControlCallback):
 
     def format_location(self, location: Location) -> str:
         nearest_name, nearest = self.locations.nearest_location(location)
-        near = nearest and location.km_to(nearest) < DISTANCE_THRESHOLD_KM
+        near_threshold = coalesce(location.near_km, DEFAULT_NEAR_THRESHOLD_KM)
+        # TODO: but there could be another location that's not the nearest, but has
+        # a larger near_km..
+        distance = location.km_to(nearest) if nearest is not None else None
+        near = nearest and (distance < near_threshold if distance is not None else False)
+        # just so we need to check less stuff in the code..
+        distance_str = f"{format_km(distance)}" if distance is not None else ""
         if self.location_detail == LocationDetail.Full:
             # show precise location information
             st = f"{location} {location.url()}"
             if nearest_name is not None:
-                st += f" near {nearest_name}"
+                st += f" {distance_str} to {nearest_name}"
             return st
         else:
             if self.location_detail == LocationDetail.Near:
                 # show precise location is near some predefined location
                 if near:
-                    return f"{location} {location.url()} near {nearest_name}"
+                    return f"{location} {location.url()} {distance_str} to {nearest_name}"
                 else:
                     return f""
             elif self.location_detail == LocationDetail.At:
                 # show only if location is near some predefined location
                 if near:
-                    return f"near {nearest_name}"
+                    return f"{distance_str} to {nearest_name}"
                 else:
                     return ""
             elif self.location_detail == LocationDetail.Nearest:
                 # show distance to the nearest location
                 if nearest:
-                    assert nearest
-                    return f"{nearest.km_to(location)}km to {nearest_name}"
+                    return f"{distance_str} to {nearest_name}"
                 else:
                     return f""
             else:

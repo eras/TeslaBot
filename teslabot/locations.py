@@ -28,10 +28,13 @@ class NoSuchLocationError(LocationsException):
 class Location:
     lat: float
     lon: float
+    near_km: Optional[float] = None  # range for a point to be considered to be "near"
     address: Optional[str] = None
 
     def json(self) -> Any:
         js: Dict[str, Union[str, float]] = {"lat": self.lat, "lon": self.lon}
+        if self.near_km is not None:
+            js["near_km"] = self.near_km
         if self.address is not None:
             js["address"] = self.address
         return js
@@ -41,7 +44,9 @@ class Location:
 
     @staticmethod
     def from_json(json: Any) -> "Location":
-        return Location(lat=json["lat"], lon=json["lon"], address=json.get("address", None))
+        return Location(lat=json["lat"], lon=json["lon"],
+                        near_km=json.get("near_km", None),
+                        address=json.get("address", None))
 
     def km_to(self, other: "Location") -> float:
         point1 = self
@@ -67,7 +72,7 @@ class Location:
 
 LocationAddArgsValue = \
     p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(),
-                                     p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)$", [1, 3])),
+                                     p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)(,([0-9]+(\.[0-9]+)?))?$", [1, 3, 6])),
                           p.ValidOrMissing(p.RestAsStr())))
 LocationAddArgs = Tuple[Tuple[str, Tuple[str, ...]], Optional[str]]
 
@@ -98,7 +103,7 @@ class Locations(StateElement):
         state.add_element(self)
 
         self.cmds = commands.Commands[CommandContext]()
-        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon [address]",
+        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon[,near_km] [address]",
                                              LocationAddArgsValue,
                                              self._command_location_add))
         self.cmds.register(commands.Function("ls", "List locations",
@@ -119,9 +124,11 @@ class Locations(StateElement):
     async def _command_location_add(self,
                                     context: CommandContext,
                                     args: LocationAddArgs) -> None:
-        (name, (lat, lon)), address = args
+        (name, (lat, lon, near_km)), address = args
         try:
-            await self.add(name, Location(lat=float(lat), lon=float(lon), address=address))
+            await self.add(name, Location(lat=float(lat), lon=float(lon),
+                                          near_km=float(near_km) if near_km else None,
+                                          address=address))
             await context.control.send_message(context.to_message_context(),
                                                f"Added location {name}")
         except DuplicateLocationError as exn:
@@ -133,7 +140,9 @@ class Locations(StateElement):
                                    args: LocationLsArgs) -> None:
         if self.locations:
             def format_loc(name: str, loc: Location) -> str:
-                st = f"{name}: lat={loc.lat} lon={loc.lon}"
+                st = f"{name}: lat/lon={loc.lat},{loc.lon}"
+                if loc.near_km is not None:
+                    st += f" near={loc.near_km} km"
                 if loc.address is not None:
                     st += f" address={loc.address}"
                 return st
