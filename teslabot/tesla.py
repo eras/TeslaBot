@@ -485,6 +485,7 @@ class App(ControlCallback):
             front_passanger_window = data["vehicle_state"]["fp_window"] != 0
             rear_driver_window  = data["vehicle_state"]["rd_window"] != 0
             rear_passanger_window = data["vehicle_state"]["rp_window"] != 0
+            valet_mode          = data["vehicle_state"]["valet_mode"]
             odometer            = int(data["vehicle_state"]["odometer"])
             display_name        = data["vehicle_state"]["vehicle_name"]
             inside_temp         = data["climate_state"]["inside_temp"]
@@ -496,6 +497,8 @@ class App(ControlCallback):
             message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to limit: {format_hours(time_to_full_charge)}\n"
             message += f"Odometer: {odometer} {dist_unit}"
             message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
+            if valet_mode:
+                message += f"\nValet mode enabled"
             if front_trunk_open:
                 message += f"\nFrunk open"
             if rear_trunk_open:
