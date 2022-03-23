@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Generic, Callable, Awaitable, cast, Any, Union
+from typing import List, Optional, Tuple, Generic, Callable, Awaitable, cast, Any, Union, TypeVar
 import re
 import datetime
 from configparser import ConfigParser
@@ -28,6 +28,8 @@ from .asyncthread import to_async
 from . import __version__
 
 logger = log.getLogger(__name__)
+
+T = TypeVar('T')
 
 DISTANCE_THRESHOLD_KM = 0.5
 
@@ -454,10 +456,12 @@ class App(ControlCallback):
 
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
         vehicle_name, _ = args
-        vehicle = await self._get_vehicle(vehicle_name)
-        await self._wake(context, vehicle)
         try:
-            data = await to_async(vehicle.get_vehicle_data)
+            def call(vehicle: teslapy.Vehicle) -> Any:
+                return vehicle.get_vehicle_data()
+            data = await self._command_on_vehicle(context, vehicle_name, call)
+            if not data:
+                return
             logger.debug(f"data: {data}")
             dist_hr_unit        = data["gui_settings"]["gui_distance_units"]
             dist_unit           = assert_some(re.match(r"^[^/]*", dist_hr_unit), "Expected to find / from dist_hr_unit")[0]
@@ -482,9 +486,10 @@ class App(ControlCallback):
             rear_driver_window  = data["vehicle_state"]["rd_window"] != 0
             rear_passanger_window = data["vehicle_state"]["rp_window"] != 0
             odometer            = int(data["vehicle_state"]["odometer"])
+            display_name        = data["vehicle_state"]["vehicle_name"]
             inside_temp         = data["climate_state"]["inside_temp"]
             outside_temp        = data["climate_state"]["outside_temp"]
-            message = f"{vehicle['display_name']} version {car_version}\n"
+            message = f"{display_name} version {car_version}\n"
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
@@ -527,12 +532,12 @@ class App(ControlCallback):
     async def _command_on_vehicle(self,
                                   context: CommandContext,
                                   vehicle_name: Optional[str],
-                                  fn: Callable[[teslapy.Vehicle], None]) -> None:
+                                  fn: Callable[[teslapy.Vehicle], T]) -> Optional[T]:
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         num_retries = 0
         error = None
-        result = None
+        result: Optional[T] = None
         await self.control.send_message(context.to_message_context(), f"Sending command")
         while num_retries < 5:
             try:
@@ -556,9 +561,11 @@ class App(ControlCallback):
             num_retries += 1
         if error:
             await self.control.send_message(context.to_message_context(), f"Error: {error}")
+            return None
         else:
-            assert result
+            assert result is not None
             await self.control.send_message(context.to_message_context(), f"Success: {result}")
+            return result
 
     async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
         (mode, vehicle_name), _ = args
