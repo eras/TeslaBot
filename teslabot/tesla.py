@@ -545,7 +545,6 @@ class App(ControlCallback):
         num_retries = 0
         error = None
         result: Optional[T] = None
-        await self.control.send_message(context.to_message_context(), f"Sending command")
         while num_retries < 5:
             try:
                 # https://github.com/python/mypy/issues/9590
