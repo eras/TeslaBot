@@ -20,7 +20,7 @@ from .config import Config
 from .state import State, StateElement
 from . import commands
 from . import parser as p
-from .utils import assert_some, indent
+from .utils import assert_some, indent, call_with_delay_info
 from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgsParser
@@ -347,9 +347,12 @@ class App(ControlCallback):
             return vehicles[0]
 
     async def _wake(self, context: CommandContext, vehicle: teslapy.Vehicle) -> None:
-        await self.control.send_message(context.to_message_context(), f"Waking up {vehicle['display_name']}")
+        async def report() -> None:
+            await self.control.send_message(context.to_message_context(), f"Waking up {vehicle['display_name']}")
         try:
-            await to_async(vehicle.sync_wake_up)
+            await call_with_delay_info(delay_sec=2.0,
+                                       report=report,
+                                       task=to_async(vehicle.sync_wake_up))
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
