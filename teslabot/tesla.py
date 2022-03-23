@@ -459,7 +459,7 @@ class App(ControlCallback):
         try:
             def call(vehicle: teslapy.Vehicle) -> Any:
                 return vehicle.get_vehicle_data()
-            data = await self._command_on_vehicle(context, vehicle_name, call)
+            data = await self._command_on_vehicle(context, vehicle_name, call, show_success=False)
             if not data:
                 return
             logger.debug(f"data: {data}")
@@ -535,7 +535,8 @@ class App(ControlCallback):
     async def _command_on_vehicle(self,
                                   context: CommandContext,
                                   vehicle_name: Optional[str],
-                                  fn: Callable[[teslapy.Vehicle], T]) -> Optional[T]:
+                                  fn: Callable[[teslapy.Vehicle], T],
+                                  show_success: bool = True) -> Optional[T]:
         vehicle = await self._get_vehicle(vehicle_name)
         await self._wake(context, vehicle)
         num_retries = 0
@@ -567,7 +568,8 @@ class App(ControlCallback):
             return None
         else:
             assert result is not None
-            await self.control.send_message(context.to_message_context(), f"Success: {result}")
+            if show_success:
+                await self.control.send_message(context.to_message_context(), f"Success! {result}")
             return result
 
     async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
