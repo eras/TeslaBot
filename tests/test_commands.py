@@ -407,6 +407,26 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(p.Delayed(fixed).parse(["moi"]),
                              p.ParseOK("moi", processed=1))
 
+    def test_interval(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.Interval().parse([]),
+                             p.ParseFail("No argument provided"))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse([""]),
+                             p.ParseFail("Failed to parse time interval"))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["0h"]),
+                             p.ParseFail("Too short interval"))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["1h"]),
+                             p.ParseOK(datetime.timedelta(hours=1), processed=1))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["1m"]),
+                             p.ParseOK(datetime.timedelta(minutes=1), processed=1))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["1h1m"]),
+                             p.ParseOK(datetime.timedelta(hours=1, minutes=1), processed=1))
+
     def test_time(self) -> None:
         now = datetime.datetime.fromisoformat("2022-02-22 01:00")
         today = now.date()

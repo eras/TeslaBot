@@ -500,6 +500,29 @@ class SomeOf(Parser[List[T]]):
             parsers = next_parsers
         return ParseOK(results, processed=total_processed)
 
+class Interval(Parser[datetime.timedelta]):
+    regex: Regex
+
+    def __init__(self) -> None:
+        self.regex = Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$", [1, 2])
+
+    def parse(self, args: List[str]) -> ParseResult[datetime.timedelta]:
+        if len(args) == 0:
+            return ParseFail("No argument provided")
+        result = self.regex.parse(args)
+        if isinstance(result, ParseFail):
+            return ParseFail("Failed to parse time interval")
+        assert(isinstance(result, ParseOK))
+        hours = result.value[0]
+        minutes = result.value[1]
+        if hours is None and minutes is None:
+            return ParseFail("Failed to parse time interval")
+        delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
+                                   minutes=coalesce(map_optional(minutes, int), 0))
+        if delta.total_seconds() < 60:
+            return ParseFail("Too short interval")
+        return ParseOK(delta, processed=result.processed)
+
 class Time(Parser[datetime.datetime]):
     regex: Regex
     now: Optional[datetime.datetime]
