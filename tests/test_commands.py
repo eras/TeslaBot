@@ -408,7 +408,7 @@ class TestCommands(unittest.TestCase):
                              p.ParseOK("moi", processed=1))
 
     def test_time(self) -> None:
-        now = datetime.datetime.fromisoformat("2022-02-22 00:00")
+        now = datetime.datetime.fromisoformat("2022-02-22 01:00")
         today = now.date()
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse([]),
@@ -422,7 +422,48 @@ class TestCommands(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["00:00"]),
                              p.ParseOK(datetime.datetime.combine(today,
-                                                                 datetime.time(0, 0)),
+                                                                 datetime.time(0, 0)) +
+                                       datetime.timedelta(days=1),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["01:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["02:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(2, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["0m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["10m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 10)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["60m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(2, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["0h"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["12h"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(13, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["12h12m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(13, 12)),
                                        processed=1))
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["24:00"]),

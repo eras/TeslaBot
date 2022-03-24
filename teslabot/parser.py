@@ -505,7 +505,7 @@ class Time(Parser[datetime.datetime]):
     now: Optional[datetime.datetime]
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
-        self.regex = Regex(r"^([0-9]{1,2}):?([0-9]{2})$", [1, 2])
+        self.regex = Regex(r"^(?:([0-9]{1,2}):?([0-9]{2})|(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?)$", [1, 2, 3, 4])
         self.now = now
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
@@ -516,16 +516,27 @@ class Time(Parser[datetime.datetime]):
             return ParseFail("Failed to parse hh:mm")
         else:
             assert isinstance(result, ParseOK)
-            hh, mm = (int(result.value[0]), int(result.value[1]))
-            if hh > 23:
-                return ParseFail("Hour cannot be >23")
-            elif mm > 59:
-                return ParseFail("Minute cannot be >59")
-            else:
-                time_of_day = datetime.time(hh, mm)
+            now = coalesce(self.now, datetime.datetime.now())
+            if now.microsecond:
+                # round to next second
+                now += datetime.timedelta(microseconds=1000000-now.microsecond)
+            if result.value[0] is not None:
+                hh, mm = (int(result.value[0]), int(result.value[1]))
+                if hh is not None and hh > 23:
+                    return ParseFail("Hour cannot be >23")
+                elif mm > 59:
+                    return ParseFail("Minute cannot be >59")
                 date = coalesce(map_optional(self.now, lambda x: x.date()), datetime.date.today())
-                now = coalesce(self.now, datetime.datetime.now())
+                time_of_day = datetime.time(hh, mm)
                 time = datetime.datetime.combine(date, time_of_day)
                 while time < now:
                     time += datetime.timedelta(days=1)
-                return ParseOK(time, processed=result.processed)
+            else:
+                hours = result.value[2]
+                minutes = result.value[3]
+                if hours is None and minutes is None:
+                    return ParseFail("Failed to parse relative time")
+                delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
+                                           minutes=coalesce(map_optional(minutes, int), 0))
+                time = now + delta
+            return ParseOK(time, processed=result.processed)
