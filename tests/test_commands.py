@@ -406,22 +406,22 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(p.Delayed(fixed).parse(["moi"]),
                              p.ParseOK("moi", processed=1))
 
-    def test_hhmm(self) -> None:
+    def test_time(self) -> None:
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse([]),
+            self.assertEqual(p.Time().parse([]),
                              p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse([":00"]),
+            self.assertEqual(p.Time().parse([":00"]),
                              p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse(["0:0"]),
+            self.assertEqual(p.Time().parse(["0:0"]),
                              p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse(["00:00"]),
+            self.assertEqual(p.Time().parse(["00:00"]),
                              p.ParseOK((00, 00), processed=1))
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse(["24:00"]),
+            self.assertEqual(p.Time().parse(["24:00"]),
                              p.ParseFail("Hour cannot be >23"))
         with self.subTest():
-            self.assertEqual(p.HourMinute().parse(["00:70"]),
+            self.assertEqual(p.Time().parse(["00:70"]),
                              p.ParseFail("Minute cannot be >59"))

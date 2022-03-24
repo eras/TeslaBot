@@ -497,7 +497,7 @@ class SomeOf(Parser[List[T]]):
             parsers = next_parsers
         return ParseOK(results, processed=total_processed)
 
-class HourMinute(Parser[Tuple[int, int]]):
+class Time(Parser[Tuple[int, int]]):
     regex: Regex
 
     def __init__(self) -> None:

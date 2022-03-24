@@ -213,7 +213,7 @@ class App(ControlCallback):
         self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
                                            valid_lock_unlock(self), self._command_unlock))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
-                                           p.Remaining(p.Adjacent(p.HourMinute(), valid_schedulable(self))), self._command_at))
+                                           p.Remaining(p.Adjacent(p.Time(), valid_schedulable(self))), self._command_at))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
                                            p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
