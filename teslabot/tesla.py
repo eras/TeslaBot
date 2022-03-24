@@ -163,6 +163,9 @@ ScheduleArgs = Tuple[datetime.datetime, CommandWithArgs]
 def valid_schedule(app: "App") -> p.Parser[ScheduleArgs]:
     return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app)))
 
+def format_time(dt: datetime.datetime) -> str:
+    return dt.strftime("%H:%M")
+
 def format_hours(hours: float) -> str:
     h = math.floor(hours)
     m = math.floor((hours % 1.0) * 60.0)
@@ -487,8 +490,13 @@ class App(ControlCallback):
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
-            message += f"Charge limit: {charge_limit}% Charge rate: {charge_rate}A Time to limit: {format_hours(time_to_full_charge)}\n"
-            message += f"Odometer: {odometer} {dist_unit}"
+            charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
+            message += f"Charge limit: {charge_limit}% ";
+            if charge_rate:
+                message += f" Charge rate: {charge_rate}A";
+            if time_to_full_charge > 0 and charge_rate > 0:
+                message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
+            message += f"\nOdometer: {odometer} {dist_unit}"
             message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
             if valet_mode:
                 message += f"\nValet mode enabled"
