@@ -422,6 +422,24 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["foo", "hei"]),
                              p.ParseOK((["hei"], "hei"), processed=2))
 
+    def test_ifthen(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.IfThen(p.CaptureFixedStr("foo"),
+                                      p.Capture(p.AnyStr())).parse([]),
+                             p.ParseFail("No adjacent arguments parsed completely"))
+        with self.subTest():
+            self.assertEqual(p.IfThen(p.CaptureFixedStr("foo"),
+                                      p.Capture(p.AnyStr())).parse(["moi"]),
+                             p.ParseFail("No adjacent arguments parsed completely"))
+        with self.subTest():
+            self.assertEqual(p.IfThen(p.CaptureFixedStr("foo"),
+                                      p.Capture(p.AnyStr())).parse(["foo"]),
+                             p.ParseFail("No argument provided while parsing right argument"))
+        with self.subTest():
+            self.assertEqual(p.IfThen(p.CaptureFixedStr("foo"),
+                                      p.Capture(p.AnyStr())).parse(["foo", "hei"]),
+                             p.ParseOK((["hei"], "hei"), processed=2))
+
     def test_interval(self) -> None:
         with self.subTest():
             self.assertEqual(p.Interval().parse([]),

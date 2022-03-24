@@ -382,6 +382,20 @@ class Adjacent(Parser[Tuple[T1, T2]]):
         else:
             return left_priority()
 
+class IfThen(Parser[T]):
+    """Adjacent, but ignores the capture of the left-side parser"""
+    parser: Adjacent[Any, T]
+
+    def __init__(self, parser_left: Parser[Any], parser_right: Parser[T]) -> None:
+        self.parser = Adjacent(parser_left, parser_right)
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        parse = self.parser(args)
+        if isinstance(parse, ParseFail):
+            return ParseFail(message=parse.message)
+        assert isinstance(parse, ParseOK)
+        return ParseOK(value=parse.value[1], processed=parse.processed)
+
 class Remaining(Parser[T]):
     """Requires the underlying parser to parse all provided data, otherwise returns ParseFail"""
     parser: Parser[T]
