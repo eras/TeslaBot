@@ -83,9 +83,16 @@ def timer_entry_to_json(entry: scheduler.Entry[SchedulerContext]) -> Any:
 def timer_entry_from_json(id: int, json: Any, callback: Callable[[scheduler.Entry[SchedulerContext]], Awaitable[None]]) -> scheduler.Entry[SchedulerContext]:
     async def indirect_callback() -> None:
         await callback(entry)
-    entry = scheduler.OneShot(callback=indirect_callback,
-                              time=datetime.datetime.fromisoformat(json["time"]),
-                              context=SchedulerContext(info=AppTimerInfo.from_json(id, json["info"])))
+    if "interval_seconds" in json:
+        entry: scheduler.Entry[SchedulerContext] = \
+            scheduler.Periodic(callback=indirect_callback,
+                               time=datetime.datetime.fromisoformat(json["time"]),
+                               interval=datetime.timedelta(seconds=json["interval_seconds"]),
+                               context=SchedulerContext(info=AppTimerInfo.from_json(id, json["info"])))
+    else:
+        entry = scheduler.OneShot(callback=indirect_callback,
+                                  time=datetime.datetime.fromisoformat(json["time"]),
+                                  context=SchedulerContext(info=AppTimerInfo.from_json(id, json["info"])))
     return entry
 
 class LocationDetail(Enum):
@@ -159,9 +166,11 @@ def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parse
     cmd_parsers = [p.Adjacent(p.CaptureFixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(cmd_parsers))
 
-ScheduleArgs = Tuple[datetime.datetime, CommandWithArgs]
+ScheduleArgs = Tuple[Tuple[datetime.datetime, Optional[datetime.timedelta]], CommandWithArgs]
 def valid_schedule(app: "App") -> p.Parser[ScheduleArgs]:
-    return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app)))
+    return p.Remaining(p.Adjacent(p.Adjacent(p.Time(),
+                                             p.Optional_(p.Keyword("every", p.Interval()))),
+                                  valid_schedulable(app)))
 
 def format_time(dt: datetime.datetime) -> str:
     return dt.strftime("%H:%M")
@@ -219,7 +228,7 @@ class App(ControlCallback):
                                            valid_lock_unlock(self), self._command_lock))
         self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
                                            valid_lock_unlock(self), self._command_unlock))
-        self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
+        self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on or at 1h30m every 10m info",
                                            valid_schedule(self), self._command_at))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
                                            p.Remaining(p.Int()), self._command_rm))
@@ -319,9 +328,11 @@ class App(ControlCallback):
         if entries:
             result: List[str] = []
             for entry in entries:
+                info = entry.context.info
                 if isinstance(entry, scheduler.OneShot):
-                    info = entry.context.info
                     result.append(f"{info.id} {entry.time}: {' '.join(info.command)}")
+                if isinstance(entry, scheduler.Periodic):
+                    result.append(f"{info.id} {entry.next_time}, repeats every {entry.interval}: {' '.join(info.command)}")
             result_lines = "\n".join(result)
             await self.control.send_message(context.to_message_context(), f"Timers:\n{result_lines}")
         else:
@@ -390,7 +401,8 @@ class App(ControlCallback):
         info = entry.context.info
         command = info.command
         logger.info(f"Timer {info.id} activated")
-        await self._scheduler.remove(entry)
+        if isinstance(entry, scheduler.OneShot):
+            await self._scheduler.remove(entry)
         await self.state.save()
         context = CommandContext(admin_room=False, control=self.control)
         await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
@@ -400,17 +412,27 @@ class App(ControlCallback):
 
     async def _command_at(self, context: CommandContext,
                           args: ScheduleArgs) -> None:
-        time, command = args
+        (time, interval), command = args
 
         async def callback() -> None:
             await self._activate_timer(entry)
         scheduler_id = self._next_scheduler_id()
-        entry = scheduler.OneShot(callback, time,
-                                  SchedulerContext(info=AppTimerInfo(id=scheduler_id, command=command)))
+        sched_context = SchedulerContext(info=AppTimerInfo(id=scheduler_id, command=command))
+        message = f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})"
+        if interval is None:
+            entry: scheduler.Entry[SchedulerContext] = \
+                scheduler.OneShot(callback,
+                                  time=time,
+                                  context=sched_context)
+        else:
+            entry = scheduler.Periodic(callback,
+                                       time=time, interval=interval,
+                                       context=sched_context)
+            message += f" repeats every {interval}"
         await self._scheduler.add(entry)
         await self.state.save()
         await self.control.send_message(context.to_message_context(),
-                                        f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})")
+                                        message)
 
     def format_location(self, location: Location) -> str:
         nearest_name, nearest = self.locations.nearest_location(location)
