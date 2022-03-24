@@ -5,7 +5,7 @@ from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, T
 from typing_extensions import Protocol
 from enum import Enum
 
-from .utils import coalesce, map_optional
+from .utils import coalesce, map_optional, round_to_next_second
 
 Parsed = TypeVar("Parsed")
 T = TypeVar("T")
@@ -519,7 +519,7 @@ class Time(Parser[datetime.datetime]):
             now = coalesce(self.now, datetime.datetime.now())
             if now.microsecond:
                 # round to next second
-                now += datetime.timedelta(microseconds=1000000-now.microsecond)
+                now = round_to_next_second(now)
             if result.value[0] is not None:
                 hh, mm = (int(result.value[0]), int(result.value[1]))
                 if hh is not None and hh > 23:

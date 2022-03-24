@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 from typing import Optional, TypeVar, Callable, Awaitable, List
 
 T = TypeVar("T")
@@ -16,6 +17,9 @@ def assert_some(x: Optional[T], message: Optional[str] = None) -> T:
     else:
         assert x is not None
     return x
+
+def round_to_next_second(time: datetime.datetime) -> datetime.datetime:
+    return time + datetime.timedelta(microseconds=1000000-time.microsecond)
 
 def indent(by: int, string: str) -> str:
     prefix = " " * by

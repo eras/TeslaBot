@@ -7,8 +7,10 @@ import aiounittest
 import unittest
 import traceback
 import logging
+from abc import ABC, abstractmethod
 from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any, TypeVar, Generic
 from typing_extensions import Protocol
+from .utils import round_to_next_second, assert_some
 
 logger = logging.getLogger(__name__)
 
@@ -16,29 +18,36 @@ T = TypeVar('T')
 
 Context = TypeVar('Context')
 
-def assert_some(x: Optional[T]) -> T:
-    assert x is not None
-    return x
-
 class CallbackProtocol(Protocol):
     def __call__(self) -> Awaitable[None]:
         ...
 
-class Entry(Generic[Context]):
-    callback: CallbackProtocol
+class Entry(Generic[Context], ABC):
+    _callback: CallbackProtocol
     context: Context
 
     def __init__(self,
                  callback: Callable[[], Awaitable[None]],
                  context: Context) -> None:
-        self.callback = callback
+        self._callback = callback
         self.context = context
 
+    @abstractmethod
     def when_is_next(self, now: float) -> Optional[float]:
         """When is next activation in unix time stamp after the given timestamp
 
 or None if no such activation is in this schedule"""
-        return None
+        ...
+
+    async def callback(self, now: float) -> None:
+        """Call this to invoke the callback"""
+        self.activate(now)
+        await self._callback()
+
+    @abstractmethod
+    def activate(self, now: float) -> None:
+        """Provide indication that the callback is to be called, to maintain recurring timers etc"""
+        ...
 
 class Daily(Entry[Context]):
     time: datetime.time
@@ -63,6 +72,9 @@ or None if no such activation is in this schedule"""
         assert now_dt.timetz() >= self.time
         return now_dt.timestamp()
 
+    def activate(self, now: float) -> None:
+        pass
+
     def __str__(self) -> str:
         return f"Daily at {self.time}" 
 
@@ -81,6 +93,33 @@ class OneShot(Entry[Context]):
             return self.time.timestamp()
         else:
             return None
+
+    def activate(self, now: float) -> None:
+        pass
+
+class Periodic(Entry[Context]):
+    next_time: datetime.datetime
+    interval: datetime.timedelta
+
+    def __init__(self,
+                 callback: Callable[[], Awaitable[None]],
+                 time: datetime.datetime,
+                 interval: datetime.timedelta,
+                 context: Context) -> None:
+        super().__init__(callback, context)
+        self.next_time = time
+        self.interval = interval
+
+    def when_is_next(self, now: float) -> Optional[float]:
+        return self.next_time.timestamp()
+
+    def activate(self, now: float) -> None:
+        # reset the zero point if we've fallen behind too much
+        if self.next_time.timestamp() <= now - (0.5 * self.interval.total_seconds()):
+            self.next_time = round_to_next_second(datetime.datetime.fromtimestamp(now + self.interval.total_seconds()))
+        else:
+            while self.next_time.timestamp() <= now:
+                self.next_time += self.interval
 
 class AsyncSleepProtocol(Protocol):
     def __call__(self, delta: float, condition: asyncio.Condition) -> Coroutine[Any, Any, None]:
@@ -168,7 +207,7 @@ class Scheduler(Generic[Context]):
                     previously_activate_time = next_time
                     previously_activated.append(next_entry)
                     try:
-                        await next_entry.callback()
+                        await next_entry.callback(now)
                     except asyncio.CancelledError:
                         pass
                     except:
