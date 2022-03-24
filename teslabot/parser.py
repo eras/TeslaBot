@@ -99,7 +99,31 @@ class CaptureFixedStr(Parser[str]):
         if args[0].lower() == self.fixed_string.lower():
             return ParseOK(args[0], processed=1)
         else:
-            return ParseFail("Expected {self.fixed_string}")
+            return ParseFail(f"Expected {self.fixed_string}")
+
+class Keyword(Parser[T]):
+    """Non-capturing fixed str + simple Adjacent rolled in one
+
+    Less outputs (and types) than a combinator would be.
+    """
+    keyword: str
+    parser: Parser[T]
+
+    def __init__(self, keyword: str, parser: Parser[T]) -> None:
+        self.keyword = keyword
+        self.parser = parser
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        if len(args) == 0:
+            return ParseFail("No argument provided")
+        if args[0].lower() == self.keyword.lower():
+            parse = self.parser(args[1:])
+            if isinstance(parse, ParseFail):
+                return parse
+            assert isinstance(parse, ParseOK)
+            return ParseOK(value=parse.value, processed=1+parse.processed)
+        else:
+            return ParseFail(f"Expected {self.keyword}")
 
 class Regex(Parser[Tuple[str, ...]]):
     regex: "re.Pattern[str]"

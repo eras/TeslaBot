@@ -407,6 +407,21 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(p.Delayed(fixed).parse(["moi"]),
                              p.ParseOK("moi", processed=1))
 
+
+    def test_keyword(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse([]),
+                             p.ParseFail("No argument provided"))
+        with self.subTest():
+            self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["moi"]),
+                             p.ParseFail("Expected foo"))
+        with self.subTest():
+            self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["foo"]),
+                             p.ParseFail("No argument provided"))
+        with self.subTest():
+            self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["foo", "hei"]),
+                             p.ParseOK((["hei"], "hei"), processed=2))
+
     def test_interval(self) -> None:
         with self.subTest():
             self.assertEqual(p.Interval().parse([]),
