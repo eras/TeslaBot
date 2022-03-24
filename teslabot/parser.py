@@ -1,8 +1,11 @@
 import re
+import datetime
 from abc import ABC, abstractmethod
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type
 from typing_extensions import Protocol
 from enum import Enum
+
+from .utils import coalesce, map_optional
 
 Parsed = TypeVar("Parsed")
 T = TypeVar("T")
@@ -497,13 +500,15 @@ class SomeOf(Parser[List[T]]):
             parsers = next_parsers
         return ParseOK(results, processed=total_processed)
 
-class Time(Parser[Tuple[int, int]]):
+class Time(Parser[datetime.datetime]):
     regex: Regex
+    now: Optional[datetime.datetime]
 
-    def __init__(self) -> None:
+    def __init__(self, now: Optional[datetime.datetime] = None) -> None:
         self.regex = Regex(r"^([0-9]{1,2}):?([0-9]{2})$", [1, 2])
+        self.now = now
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[int, int]]:
+    def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
         if len(args) == 0:
             return ParseFail("No argument provided")
         result = self.regex.parse(args)
@@ -517,4 +522,10 @@ class Time(Parser[Tuple[int, int]]):
             elif mm > 59:
                 return ParseFail("Minute cannot be >59")
             else:
-                return ParseOK((hh, mm), processed=result.processed)
+                time_of_day = datetime.time(hh, mm)
+                date = coalesce(map_optional(self.now, lambda x: x.date()), datetime.date.today())
+                now = coalesce(self.now, datetime.datetime.now())
+                time = datetime.datetime.combine(date, time_of_day)
+                while time < now:
+                    time += datetime.timedelta(days=1)
+                return ParseOK(time, processed=result.processed)

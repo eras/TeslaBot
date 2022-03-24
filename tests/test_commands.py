@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+import datetime
 from typing import List, TypeVar, Optional, Tuple
 from enum import Enum
 
@@ -407,21 +408,25 @@ class TestCommands(unittest.TestCase):
                              p.ParseOK("moi", processed=1))
 
     def test_time(self) -> None:
+        now = datetime.datetime.fromisoformat("2022-02-22 00:00")
+        today = now.date()
         with self.subTest():
-            self.assertEqual(p.Time().parse([]),
+            self.assertEqual(p.Time(now=now).parse([]),
                              p.ParseFail("No argument provided"))
         with self.subTest():
-            self.assertEqual(p.Time().parse([":00"]),
+            self.assertEqual(p.Time(now=now).parse([":00"]),
                              p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(p.Time().parse(["0:0"]),
+            self.assertEqual(p.Time(now=now).parse(["0:0"]),
                              p.ParseFail("Failed to parse hh:mm"))
         with self.subTest():
-            self.assertEqual(p.Time().parse(["00:00"]),
-                             p.ParseOK((00, 00), processed=1))
+            self.assertEqual(p.Time(now=now).parse(["00:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(0, 0)),
+                                       processed=1))
         with self.subTest():
-            self.assertEqual(p.Time().parse(["24:00"]),
+            self.assertEqual(p.Time(now=now).parse(["24:00"]),
                              p.ParseFail("Hour cannot be >23"))
         with self.subTest():
-            self.assertEqual(p.Time().parse(["00:70"]),
+            self.assertEqual(p.Time(now=now).parse(["00:70"]),
                              p.ParseFail("Minute cannot be >59"))

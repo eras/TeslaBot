@@ -159,6 +159,10 @@ def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parse
     cmd_parsers = [p.Adjacent(p.FixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(cmd_parsers))
 
+ScheduleArgs = Tuple[datetime.datetime, CommandWithArgs]
+def valid_schedule(app: "App") -> p.Parser[ScheduleArgs]:
+    return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app)))
+
 def format_hours(hours: float) -> str:
     h = math.floor(hours)
     m = math.floor((hours % 1.0) * 60.0)
@@ -213,7 +217,7 @@ class App(ControlCallback):
         self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
                                            valid_lock_unlock(self), self._command_unlock))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on",
-                                           p.Remaining(p.Adjacent(p.Time(), valid_schedulable(self))), self._command_at))
+                                           valid_schedule(self), self._command_at))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
                                            p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
@@ -392,16 +396,11 @@ class App(ControlCallback):
         await self._command_ls(context, ())
 
     async def _command_at(self, context: CommandContext,
-                          args: Tuple[Tuple[int, int], CommandWithArgs]) -> None:
-        hhmm, command = args
+                          args: ScheduleArgs) -> None:
+        time, command = args
 
         async def callback() -> None:
             await self._activate_timer(entry)
-        time_of_day = datetime.time(hhmm[0], hhmm[1])
-        date = datetime.date.today()
-        time = datetime.datetime.combine(date, time_of_day)
-        while time < datetime.datetime.now():
-            time += datetime.timedelta(days=1)
         scheduler_id = self._next_scheduler_id()
         entry = scheduler.OneShot(callback, time,
                                   SchedulerContext(info=AppTimerInfo(id=scheduler_id, command=command)))

@@ -2,6 +2,7 @@ import asyncio
 from typing import Optional, TypeVar, Callable, Awaitable, List
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 def get_optional(x: Optional[T], default: T) -> T:
     if x is None:
@@ -58,3 +59,9 @@ def coalesce(*xs: Optional[T]) -> T:
         if x is not None:
             return x
     assert False, "Expected at least one element to be non-None"
+
+def map_optional(x: Optional[T], fn: Callable[[T], U]) -> Optional[U]:
+    if x is None:
+        return None
+    else:
+        return fn(x)
