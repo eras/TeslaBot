@@ -403,7 +403,7 @@ class TestCommands(unittest.TestCase):
     def test_lambda(self) -> None:
         with self.subTest():
             def fixed() -> p.Parser[str]:
-                return p.FixedStr("moi")
+                return p.CaptureFixedStr("moi")
             self.assertEqual(p.Delayed(fixed).parse(["moi"]),
                              p.ParseOK("moi", processed=1))
 

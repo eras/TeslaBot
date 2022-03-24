@@ -141,13 +141,13 @@ def valid_share(app: "App") -> p.Parser[ShareArgs]:
 CommandWithArgs = List[str]
 def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
     cmds = [
-        p.Adjacent(p.FixedStr("climate"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.FixedStr("ac"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.FixedStr("sauna"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.FixedStr("info"), valid_info(app)).any(),
-        p.Adjacent(p.FixedStr("lock"), valid_lock_unlock(app)).any(),
-        p.Adjacent(p.FixedStr("unlock"), valid_lock_unlock(app)).any(),
-        p.Adjacent(p.FixedStr("share"), valid_share(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("climate"), valid_on_off_vehicle(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("ac"), valid_on_off_vehicle(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("sauna"), valid_on_off_vehicle(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("info"), valid_info(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("lock"), valid_lock_unlock(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("unlock"), valid_lock_unlock(app)).any(),
+        p.Adjacent(p.CaptureFixedStr("share"), valid_share(app)).any(),
     ]
     return p.CaptureOnly(p.OneOf(cmds))
 
@@ -156,7 +156,7 @@ def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
     return app._set_commands.parser()
 
 def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
-    cmd_parsers = [p.Adjacent(p.FixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
+    cmd_parsers = [p.Adjacent(p.CaptureFixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(cmd_parsers))
 
 ScheduleArgs = Tuple[datetime.datetime, CommandWithArgs]
