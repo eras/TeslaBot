@@ -1,5 +1,6 @@
 from configparser import ConfigParser
 from typing import Dict, Any, Optional, Tuple, Callable, Awaitable, List, Union
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 from math import sin, cos, sqrt, atan2, radians
@@ -7,6 +8,7 @@ import logging
 
 from .state import State, StateElement
 from .control import CommandContext
+from .utils import map_optional
 from . import commands
 from . import parser as p
 from . import log
@@ -23,6 +25,11 @@ class DuplicateLocationError(LocationsException):
 
 class NoSuchLocationError(LocationsException):
     pass
+
+@dataclass
+class LatLon:
+    lat: float
+    lon: float
 
 @dataclass
 class Location:
@@ -70,11 +77,45 @@ class Location:
     def url(self) -> str:
         return f"https://www.openstreetmap.org/?mlat={self.lat}&mlon={self.lon}"
 
-LocationAddArgsValue = \
+class LocationInfo(ABC):
+    @staticmethod
+    def from_coords(coords: Tuple[str, ...]) -> "LocationInfo":
+        return LocationInfoCoords(LatLon(float(coords[0]), float(coords[1])),
+                                  map_optional(coords[2], float))
+
+    @staticmethod
+    def from_current(args: Tuple[Tuple[str, ...], Optional[str]]) -> "LocationInfo":
+        current, vehicle_name = args
+        near_km = map_optional(current[0], lambda x: float(x))
+        return LocationInfoCurrent(vehicle_name=vehicle_name,
+                                   near_km=near_km)
+
+@dataclass
+class LocationInfoCoords(LocationInfo):
+    latlon: LatLon
+    near_km: Optional[float]
+
+@dataclass
+class LocationInfoCurrent(LocationInfo):
+    vehicle_name: Optional[str]
+    near_km: Optional[float]
+    def to_info_coords(self, latlon: LatLon) -> LocationInfoCoords:
+        return LocationInfoCoords(latlon=latlon, near_km=self.near_km)
+
+LocationRegexValue = \
+    p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)(,([0-9]+(\.[0-9]+)?))?$", [1, 3, 6])
+
+LocationCoordsValue : p.Parser[LocationInfo] = \
+    p.OneOf(p.Map(map=LocationInfo.from_coords, parser=LocationRegexValue),
+            p.Map(map=LocationInfo.from_current,
+                  parser=p.Adjacent(p.Regex(r"^current(?:,([0-9]+(\.[0-9]+)?))?$", [1]),
+                                    p.Optional_(p.AnyStr()))))
+
+LocationAddArgs = Tuple[Tuple[str, LocationInfo], Optional[str]]
+LocationAddArgsValue: p.Parser[LocationAddArgs] = \
     p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(),
-                                     p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)(,([0-9]+(\.[0-9]+)?))?$", [1, 3, 6])),
-                          p.ValidOrMissing(p.RestAsStr())))
-LocationAddArgs = Tuple[Tuple[str, Tuple[str, ...]], Optional[str]]
+                                      LocationCoordsValue),
+                           p.ValidOrMissing(p.RestAsStr())))
 
 LocationLsArgsValue = p.Empty()
 LocationLsArgs = Tuple[()]
@@ -82,7 +123,17 @@ LocationLsArgs = Tuple[()]
 LocationRmArgsType = List[str]
 LocationRmArgsValue: p.Parser[LocationRmArgsType] = p.Remaining(p.List_(p.AnyStr()))
 
-LocationArgs = Callable[[CommandContext], Awaitable[None]]
+class LocationCommandContextBase(ABC):
+    cmd: CommandContext
+
+    def __init__(self, context: CommandContext) -> None:
+        self.cmd = context
+
+    @abstractmethod
+    async def get_location(self, vehicle_name: Optional[str]) -> Optional[LatLon]:
+        ...
+
+LocationArgs = Callable[[LocationCommandContextBase], Awaitable[None]]
 
 def LocationArgsParser(locations: "Locations") -> p.Parser[LocationArgs]:
     return locations.cmds.parser()
@@ -94,7 +145,7 @@ class Locations(StateElement):
     """Maps from canonical names to real names. Used to detect duplicates also."""
 
     state: State
-    cmds: commands.Commands[CommandContext]
+    cmds: commands.Commands[LocationCommandContextBase]
 
     def __init__(self, state: State) -> None:
         self.locations = {}
@@ -102,8 +153,8 @@ class Locations(StateElement):
         self.state = state
         state.add_element(self)
 
-        self.cmds = commands.Commands[CommandContext]()
-        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon[,near_km] [address]",
+        self.cmds = commands.Commands[LocationCommandContextBase]()
+        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon[,near_km] [address]  or  add name current,[near_km] [vehicle name] [address]",
                                              LocationAddArgsValue,
                                              self._command_location_add))
         self.cmds.register(commands.Function("ls", "List locations",
@@ -118,25 +169,38 @@ class Locations(StateElement):
     def help(self) -> str:
         return self.cmds.help()
 
-    async def command(self, context: CommandContext, args: LocationArgs) -> None:
+    async def command(self, context: LocationCommandContextBase, args: LocationArgs) -> None:
         await args(context)
 
     async def _command_location_add(self,
-                                    context: CommandContext,
+                                    context: LocationCommandContextBase,
                                     args: LocationAddArgs) -> None:
-        (name, (lat, lon, near_km)), address = args
-        try:
-            await self.add(name, Location(lat=float(lat), lon=float(lon),
-                                          near_km=float(near_km) if near_km else None,
-                                          address=address))
-            await context.control.send_message(context.to_message_context(),
-                                               f"Added location {name}")
-        except DuplicateLocationError as exn:
-            await context.control.send_message(context.to_message_context(),
-                                               str(exn))
+        (name, coords), address = args
+        if isinstance(coords, LocationInfoCoords):
+            loc_info: Optional[LocationInfoCoords] = coords
+        else:
+            assert isinstance(coords, LocationInfoCurrent)
+            latlon = await context.get_location(coords.vehicle_name) # TODO
+            if latlon:
+                loc_info = coords.to_info_coords(latlon)
+            else:
+                loc_info = None
+        if loc_info is None:
+            await context.cmd.control.send_message(context.cmd.to_message_context(),
+                                                   f"Cannot get current location")
+        else:
+            try:
+                await self.add(name, Location(lat=loc_info.latlon.lat, lon=loc_info.latlon.lon,
+                                              near_km=loc_info.near_km,
+                                              address=address))
+                await context.cmd.control.send_message(context.cmd.to_message_context(),
+                                                       f"Added location {name}")
+            except DuplicateLocationError as exn:
+                await context.cmd.control.send_message(context.cmd.to_message_context(),
+                                                       str(exn))
 
     async def _command_location_ls(self,
-                                   context: CommandContext,
+                                   context: LocationCommandContextBase,
                                    args: LocationLsArgs) -> None:
         if self.locations:
             def format_loc(name: str, loc: Location) -> str:
@@ -147,23 +211,23 @@ class Locations(StateElement):
                     st += f" address={loc.address}"
                 return st
             locs_str = "\n".join([format_loc(name, loc) for name, loc in self.locations.items()])
-            await context.control.send_message(context.to_message_context(),
+            await context.cmd.control.send_message(context.cmd.to_message_context(),
                                                f"Locations:\n{locs_str}")
         else:
-            await context.control.send_message(context.to_message_context(),
+            await context.cmd.control.send_message(context.cmd.to_message_context(),
                                                f"No locations")
 
     async def _command_location_rm(self,
-                                   context: CommandContext,
-                                   args: LocationRmArgs) -> None:
+                                   context: LocationCommandContextBase,
+                                   args: LocationRmArgsType) -> None:
         names = args
         try:
             for name in names:
                 await self.remove(name)
-                await context.cmd.control.send_message(context.to_message_context(),
+                await context.cmd.control.send_message(context.cmd.to_message_context(),
                                                        f"Removed location {name}")
         except NoSuchLocationError as exn:
-            await context.control.send_message(context.to_message_context(),
+            await context.cmd.control.send_message(context.cmd.to_message_context(),
                                                str(exn))
 
 

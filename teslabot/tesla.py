@@ -23,7 +23,7 @@ from . import parser as p
 from .utils import assert_some, indent, call_with_delay_info, coalesce
 from . import scheduler
 from .env import Env
-from .locations import Location, Locations, LocationArgsParser
+from .locations import Location, Locations, LocationArgs, LocationArgsParser, LocationCommandContextBase, LocationInfoCoords, LatLon
 from .asyncthread import to_async
 from . import __version__
 
@@ -237,7 +237,8 @@ class App(ControlCallback):
         self._commands.register(c.Function("share", "Share an address on an URL with the vehicle",
                                            valid_share(self), self._command_share))
         self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
-                                           p.Remaining(LocationArgsParser(self.locations)), self.locations.command))
+                                           p.Remaining(LocationArgsParser(self.locations)),
+                                           self._command_location))
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
 
@@ -280,6 +281,25 @@ class App(ControlCallback):
                                                 f"{command_context.txn} Exception :(")
         else:
             await self.control.send_message(command_context.to_message_context(), "No such command")
+
+    async def _command_location(self, context: CommandContext, args: LocationArgs) -> None:
+        class LocationCommandContext(LocationCommandContextBase):
+            app: App
+            def __init__(self, app: App, context: CommandContext) -> None:
+                super().__init__(context=context)
+                self.app = app
+
+            async def get_location(self, vehicle_name: Optional[str]) -> Optional[LatLon]:
+                def call(vehicle: teslapy.Vehicle) -> Any:
+                    return vehicle.get_vehicle_data()
+                data = await self.app._command_on_vehicle(context, vehicle_name, call, show_success=False)
+                if data:
+                    lat = data["drive_state"]["latitude"]
+                    lon = data["drive_state"]["longitude"]
+                    return LatLon(lat, lon)
+                else:
+                    return None
+        await self.locations.command(LocationCommandContext(self, context), args)
 
     async def _command_share(self, context: CommandContext, args: ShareArgs) -> None:
         (url_or_address, vehicle_name), _ = args
@@ -349,7 +369,10 @@ class App(ControlCallback):
         if len(vehicles) > 1:
             raise ArgException("Matched more than one vehicle; aborting")
         elif len(vehicles) == 0:
-            raise ArgException("No vehicle found")
+            if display_name is not None:
+                raise ArgException(f"No vehicle found by name {display_name}")
+            else:
+                raise ArgException(f"No vehicle found")
         else:
             logger.debug(f"vehicle={vehicles[0]}")
             return vehicles[0]
