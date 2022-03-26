@@ -23,8 +23,20 @@ class ParseError(CommandsException):
 class InvocationParseError(ParseError):
     pass
 
+@dataclass
+class MarkedWord:
+    word: str
+    marked: bool
+
+def mark_words(args: List[str], processed: int) -> List[MarkedWord]:
+    return [MarkedWord(word=word, marked=idx == processed) for idx, word in enumerate(args)]
+
 class CommandParseError(ParseError):
-    pass
+    marked_args: List[MarkedWord]
+
+    def __init__(self, message: str, marked_args: List[MarkedWord]) -> None:
+        super().__init__(message)
+        self.marked_args = marked_args
 
 @dataclass
 class Invocation:
@@ -72,7 +84,11 @@ class Function(Command[Context], Generic[Context, Parsed]):
     async def invoke(self, context: Context, invocation: Invocation) -> None:
         validated = self.parser(invocation.args)
         if isinstance(validated, ParseFail):
-            raise CommandParseError(validated.message)
+            marked_args = [MarkedWord(word=invocation.name, marked=False)]
+            marked_args.extend(mark_words(invocation.args,
+                                          validated.processed))
+            raise CommandParseError(validated.message,
+                                    marked_args=marked_args)
         assert isinstance(validated, ParseOK)
         await self.fn[0](context, validated.value)
 

@@ -84,6 +84,16 @@ class Control(ABC):
                         await self.local_commands.invoke(command_context, invocation)
                     else:
                         await self.callback.command_callback(command_context, invocation)
+                except commands.CommandParseError as exn:
+                    logger.error(f"{command_context.txn}: Failed to parse command: {message}")
+                    def format(word: str, highlight: bool) -> str:
+                        if highlight:
+                            return f"_{word}_"
+                        else:
+                            return word
+                    marked = [format(mw.word, mw.marked) for mw in exn.marked_args]
+                    await self.send_message(command_context.to_message_context(),
+                                            f"{command_context.txn}\n{exn.args[0]}\n{' '.join(marked)}")
                 except commands.ParseError as exn:
                     logger.error(f"{command_context.txn}: Failed to parse command: {message}")
                     await self.send_message(command_context.to_message_context(),
