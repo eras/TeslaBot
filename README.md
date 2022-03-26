@@ -120,21 +120,23 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 
 ## Commands
 
-| command                     | description                                                                                           |
-| ---                         | ---                                                                                                   |
-| !help                       | Show the list of commands supported                                                                   |
-| !climate on [name]          | Sets climate on. Needs vehicle name if you have more than one Tesla.                                  |
-| !climate off [name]         | Sets climate off.                                                                                     |
-| !ac on/off [name]           | Same as !climate.                                                                                     |
-| !sauna on/off [name]        | Sets max defrost on/off.                                                                              |
-| !info [name]                | Show information about the device, such as about location, climate and charging                       |
-| !at 06:00 command           | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future. |
-| !at 600 command             | Same                                                                                                  |
-| !at 10m command             | Schedule at now + 1 minutes                                                                           |
-| !at 1h1m command            | Schedule at now + 1 hour 1 minute                                                                     |
-| !at 06:00 every 10m command | Schedule at 06:00 and re-do every ten minutes                                                         |
-| !atrm 42                    | Cancels a timer                                                                                       |
-| !atq                        | Lists timers                                                                                          |
-| !set location-detail detail | Defines how precisely the location is displayed. See !help.                                           |
-| !set require-! false        | After this commands no longer need the ! prefix to work.                                              |
-| !location add/rm/ls         | Manage locations. See !help.                                                                          |
+| command                                | description                                                                                           |
+| ---                                    | ---                                                                                                   |
+| !help                                  | Show the list of commands supported                                                                   |
+| !climate on [name]                     | Sets climate on. Needs vehicle name if you have more than one Tesla.                                  |
+| !climate off [name]                    | Sets climate off.                                                                                     |
+| !ac on/off [name]                      | Same as !climate.                                                                                     |
+| !sauna on/off [name]                   | Sets max defrost on/off.                                                                              |
+| !info [name]                           | Show information about the device, such as about location, climate and charging                       |
+| !at 06:00 command                      | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future. |
+| !at 600 command                        | Same                                                                                                  |
+| !at 10m command                        | Schedule at now + 1 minutes                                                                           |
+| !at 1h1m command                       | Schedule at now + 1 hour 1 minute                                                                     |
+| !at 06:00 every 10m command            | Schedule at 06:00 and re-do every ten minutes                                                         |
+| !at 06:00 every 10m until 30m command  | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                          |
+| !at 06:00 every 10m until 7:00 command | Schedule at 06:00 and re-do every ten minutes until 30m                                               |
+| !atrm 42                               | Cancels a timer                                                                                       |
+| !atq                                   | Lists timers                                                                                          |
+| !set location-detail detail            | Defines how precisely the location is displayed. See !help.                                           |
+| !set require-! false                   | After this commands no longer need the ! prefix to work.                                              |
+| !location add/rm/ls                    | Manage locations. See !help.                                                                          |

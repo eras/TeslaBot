@@ -20,7 +20,7 @@ from .config import Config
 from .state import State, StateElement
 from . import commands
 from . import parser as p
-from .utils import assert_some, indent, call_with_delay_info, coalesce
+from .utils import assert_some, indent, call_with_delay_info, coalesce, round_to_next_second, map_optional
 from . import scheduler
 from .env import Env
 from .locations import Location, Locations, LocationArgs, LocationArgsParser, LocationCommandContextBase, LocationInfoCoords, LatLon
@@ -58,14 +58,20 @@ class ValidVehicle(p.Delayed[str]):
 class AppTimerInfo:
     id: int
     command: List[str]
+    until: Optional[datetime.datetime]
+
     def json(self) -> Any:
         # don't serialize id, as it will be the key
-        return {"command": self.command}
+        j: Any = {"command": self.command}
+        if self.until:
+            j["until"] = self.until.isoformat()
+        return j
 
     @staticmethod
     def from_json(id: int, json: Any) -> "AppTimerInfo":
         return AppTimerInfo(id=id,
-                            command=json["command"])
+                            command=json["command"],
+                            until=datetime.datetime.fromisoformat(json["until"]) if "until" in json else None)
 
 @dataclass
 class SchedulerContext:
@@ -78,6 +84,11 @@ def timer_entry_to_json(entry: scheduler.Entry[SchedulerContext]) -> Any:
     base = entry.context.json()
     if isinstance(entry, scheduler.OneShot):
         base["time"] = entry.time.isoformat()
+    elif isinstance(entry, scheduler.Periodic):
+        base["next_time"] = entry.next_time.isoformat()
+        base["interval_seconds"] = entry.interval.total_seconds()
+    else:
+        assert False, "Unsupported timer"
     return base
 
 def timer_entry_from_json(id: int, json: Any, callback: Callable[[scheduler.Entry[SchedulerContext]], Awaitable[None]]) -> scheduler.Entry[SchedulerContext]:
@@ -86,7 +97,7 @@ def timer_entry_from_json(id: int, json: Any, callback: Callable[[scheduler.Entr
     if "interval_seconds" in json:
         entry: scheduler.Entry[SchedulerContext] = \
             scheduler.Periodic(callback=indirect_callback,
-                               time=datetime.datetime.fromisoformat(json["time"]),
+                               time=datetime.datetime.fromisoformat(json["next_time"]),
                                interval=datetime.timedelta(seconds=json["interval_seconds"]),
                                context=SchedulerContext(info=AppTimerInfo.from_json(id, json["info"])))
     else:
@@ -146,7 +157,9 @@ def valid_share(app: "App") -> p.Parser[ShareArgs]:
                       p.Empty())
 
 CommandWithArgs = List[str]
-def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
+def valid_schedulable(app: "App",
+                      include_every: bool,
+                      include_until: bool) -> p.Parser[CommandWithArgs]:
     cmds = [
         p.Adjacent(p.CaptureFixedStr("climate"), valid_on_off_vehicle(app)).any(),
         p.Adjacent(p.CaptureFixedStr("ac"), valid_on_off_vehicle(app)).any(),
@@ -156,6 +169,14 @@ def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
         p.Adjacent(p.CaptureFixedStr("unlock"), valid_lock_unlock(app)).any(),
         p.Adjacent(p.CaptureFixedStr("share"), valid_share(app)).any(),
     ]
+    if include_every:
+        cmds.append(p.Adjacent(p.CaptureFixedStr("every"),
+                               valid_schedule_every(app,
+                                                    include_until=include_until)).any())
+    if include_until:
+        cmds.append(p.Adjacent(p.CaptureFixedStr("until"),
+                               valid_schedule_until(app,
+                                                    include_every=include_every)).any())
     return p.CaptureOnly(p.OneOf(*cmds))
 
 SetArgs = Callable[[CommandContext], Awaitable[None]]
@@ -166,11 +187,28 @@ def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parse
     cmd_parsers = [p.Adjacent(p.CaptureFixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
     return p.CaptureOnly(p.OneOf(*cmd_parsers))
 
-ScheduleArgs = Tuple[Tuple[datetime.datetime, Optional[datetime.timedelta]], CommandWithArgs]
-def valid_schedule(app: "App") -> p.Parser[ScheduleArgs]:
+ScheduleAtArgs = Tuple[datetime.datetime,
+                       CommandWithArgs]
+def valid_schedule_at(app: "App") -> p.Parser[ScheduleAtArgs]:
+    return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app, include_every=True, include_until=True)))
+
+ScheduleEveryArgs = Tuple[Tuple[datetime.timedelta,
+                                Optional[datetime.datetime]],
+                          CommandWithArgs]
+def valid_schedule_every(app: "App", include_until: bool) -> p.Parser[ScheduleEveryArgs]:
+    return p.Remaining(p.Adjacent(p.Adjacent(p.Interval(),
+                                             p.Optional_(p.Conditional(lambda: include_until,
+                                                                       p.Keyword("until", p.Time())))),
+                                  valid_schedulable(app, include_every=False, include_until=include_until)))
+
+ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
+                                Optional[datetime.timedelta]],
+                          CommandWithArgs]
+def valid_schedule_until(app: "App", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
     return p.Remaining(p.Adjacent(p.Adjacent(p.Time(),
-                                             p.Optional_(p.Keyword("every", p.Interval()))),
-                                  valid_schedulable(app)))
+                                             p.Optional_(p.Conditional(lambda: include_every,
+                                                                       p.Keyword("every", p.Interval())))),
+                                  valid_schedulable(app, include_until=False, include_every=include_every)))
 
 def format_time(dt: datetime.datetime) -> str:
     return dt.strftime("%H:%M")
@@ -229,7 +267,11 @@ class App(ControlCallback):
         self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
                                            valid_lock_unlock(self), self._command_unlock))
         self._commands.register(c.Function("at", "Schedule operation: at 06:00 climate on or at 1h30m every 10m info",
-                                           valid_schedule(self), self._command_at))
+                                           valid_schedule_at(self), self._command_at))
+        self._commands.register(c.Function("every", "Schedule operation: every 10m info",
+                                           valid_schedule_every(self, include_until=True), self._command_every))
+        self._commands.register(c.Function("until", "Schedule operation: until 10:00 info",
+                                           valid_schedule_until(self, include_every=True), self._command_until))
         self._commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
                                            p.Remaining(p.Int()), self._command_rm))
         self._commands.register(c.Function("atq", "List scheduled operations or running tasks",
@@ -352,7 +394,8 @@ class App(ControlCallback):
                 if isinstance(entry, scheduler.OneShot):
                     result.append(f"{info.id} {entry.time}: {' '.join(info.command)}")
                 if isinstance(entry, scheduler.Periodic):
-                    result.append(f"{info.id} {entry.next_time}, repeats every {entry.interval}: {' '.join(info.command)}")
+                    until = f" until {info.until}" if info.until else ""
+                    result.append(f"{info.id} {entry.next_time}, repeats every {entry.interval}{until}: {' '.join(info.command)}")
             result_lines = "\n".join(result)
             await self.control.send_message(context.to_message_context(), f"Timers:\n{result_lines}")
         else:
@@ -424,7 +467,11 @@ class App(ControlCallback):
         info = entry.context.info
         command = info.command
         logger.info(f"Timer {info.id} activated")
-        if isinstance(entry, scheduler.OneShot):
+        next_time = entry.when_is_next(time.time())
+        if isinstance(entry, scheduler.OneShot) or \
+           (info.until is not None \
+            and next_time is not None \
+            and next_time > info.until.timestamp()):
             await self._scheduler.remove(entry)
         await self.state.save()
         context = CommandContext(admin_room=False, control=self.control)
@@ -433,25 +480,64 @@ class App(ControlCallback):
         await self._commands.invoke(context, invocation)
         await self._command_ls(context, ())
 
+    async def _command_every(self, context: CommandContext,
+                             args: ScheduleEveryArgs) -> None:
+        (interval, until), command = args
+        async def callback() -> None:
+            await self._activate_timer(entry)
+        scheduler_id = self._next_scheduler_id()
+        app_timer_info = AppTimerInfo(id=scheduler_id,
+                                      command=command,
+                                      until=until)
+        sched_context = SchedulerContext(info=app_timer_info)
+        message = f"Repeat every {interval}"
+        entry = scheduler.Periodic(callback,
+                                   time=round_to_next_second(datetime.datetime.now()),
+                                   interval=interval,
+                                   context=sched_context)
+        await self._scheduler.add(entry)
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        message)
+
+    async def _command_until(self, context: CommandContext,
+                             args: ScheduleUntilArgs) -> None:
+        (until, interval), command = args
+        async def callback() -> None:
+            await self._activate_timer(entry)
+        scheduler_id = self._next_scheduler_id()
+        app_timer_info = AppTimerInfo(id=scheduler_id,
+                                      command=command,
+                                      until=until)
+        sched_context = SchedulerContext(info=app_timer_info)
+        message = f"Until {until}"
+        if interval is None:
+            interval = datetime.timedelta(minutes=10)
+        entry = scheduler.Periodic(callback,
+                                   time=round_to_next_second(datetime.datetime.now()),
+                                   interval=interval,
+                                   context=sched_context)
+        await self._scheduler.add(entry)
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        message)
+
     async def _command_at(self, context: CommandContext,
-                          args: ScheduleArgs) -> None:
-        (time, interval), command = args
+                          args: ScheduleAtArgs) -> None:
+        time, command = args
 
         async def callback() -> None:
             await self._activate_timer(entry)
         scheduler_id = self._next_scheduler_id()
-        sched_context = SchedulerContext(info=AppTimerInfo(id=scheduler_id, command=command))
+        app_timer_info = AppTimerInfo(id=scheduler_id,
+                                      command=command,
+                                      until=None)
+        sched_context = SchedulerContext(info=app_timer_info)
         message = f"Scheduled \"{' '.join(command)}\" at {time} (id {scheduler_id})"
-        if interval is None:
-            entry: scheduler.Entry[SchedulerContext] = \
-                scheduler.OneShot(callback,
-                                  time=time,
-                                  context=sched_context)
-        else:
-            entry = scheduler.Periodic(callback,
-                                       time=time, interval=interval,
-                                       context=sched_context)
-            message += f" repeats every {interval}"
+        entry: scheduler.Entry[SchedulerContext] = \
+            scheduler.OneShot(callback,
+                              time=time,
+                              context=sched_context)
         await self._scheduler.add(entry)
         await self.state.save()
         await self.control.send_message(context.to_message_context(),
