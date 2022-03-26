@@ -156,27 +156,30 @@ def valid_share(app: "App") -> p.Parser[ShareArgs]:
                                  p.ValidOrMissing(ValidVehicle(app.tesla))),
                       p.Empty())
 
+def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[Tuple[str, T]]:
+    return p.Labeled(label=label, parser=p.Adjacent(p.CaptureFixedStr(label), parser).base())
+
 CommandWithArgs = List[str]
 def valid_schedulable(app: "App",
                       include_every: bool,
                       include_until: bool) -> p.Parser[CommandWithArgs]:
     cmds = [
-        p.Adjacent(p.CaptureFixedStr("climate"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("ac"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("sauna"), valid_on_off_vehicle(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("info"), valid_info(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("lock"), valid_lock_unlock(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("unlock"), valid_lock_unlock(app)).any(),
-        p.Adjacent(p.CaptureFixedStr("share"), valid_share(app)).any(),
+        cmd_adjacent("climate", valid_on_off_vehicle(app)).any(),
+        cmd_adjacent("ac", valid_on_off_vehicle(app)).any(),
+        cmd_adjacent("sauna", valid_on_off_vehicle(app)).any(),
+        cmd_adjacent("info", valid_info(app)).any(),
+        cmd_adjacent("lock", valid_lock_unlock(app)).any(),
+        cmd_adjacent("unlock", valid_lock_unlock(app)).any(),
+        cmd_adjacent("share", valid_share(app)).any(),
     ]
     if include_every:
-        cmds.append(p.Adjacent(p.CaptureFixedStr("every"),
-                               valid_schedule_every(app,
-                                                    include_until=include_until)).any())
+        cmds.append(cmd_adjacent("every",
+                                 valid_schedule_every(app,
+                                                      include_until=include_until)).any())
     if include_until:
-        cmds.append(p.Adjacent(p.CaptureFixedStr("until"),
-                               valid_schedule_until(app,
-                                                    include_every=include_every)).any())
+        cmds.append(cmd_adjacent("until",
+                                 valid_schedule_until(app,
+                                                      include_every=include_every)).any())
     return p.CaptureOnly(p.OneOf(*cmds))
 
 SetArgs = Callable[[CommandContext], Awaitable[None]]
@@ -184,8 +187,8 @@ def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
     return app._set_commands.parser()
 
 def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
-    cmd_parsers = [p.Adjacent(p.CaptureFixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
-    return p.CaptureOnly(p.OneOf(*cmd_parsers))
+    cmd_parsers = [cmd_adjacent(cmd.name, cmd.parser).any() for cmd in cmds]
+    return p.Labeled("command", p.CaptureOnly(p.OneOf(*cmd_parsers)))
 
 ScheduleAtArgs = Tuple[datetime.datetime,
                        CommandWithArgs]
@@ -197,8 +200,11 @@ ScheduleEveryArgs = Tuple[Tuple[datetime.timedelta,
                           CommandWithArgs]
 def valid_schedule_every(app: "App", include_until: bool) -> p.Parser[ScheduleEveryArgs]:
     return p.Remaining(p.Adjacent(p.Adjacent(p.Interval(),
-                                             p.Optional_(p.Conditional(lambda: include_until,
-                                                                       p.Keyword("until", p.Time())))),
+                                             p.Labeled(
+                                                 "until",
+                                                 p.Optional_(
+                                                     p.Conditional(lambda: include_until,
+                                                                   p.Keyword("until", p.Time()))))),
                                   valid_schedulable(app, include_every=False, include_until=include_until)))
 
 ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
@@ -206,8 +212,11 @@ ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
                           CommandWithArgs]
 def valid_schedule_until(app: "App", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
     return p.Remaining(p.Adjacent(p.Adjacent(p.Time(),
-                                             p.Optional_(p.Conditional(lambda: include_every,
-                                                                       p.Keyword("every", p.Interval())))),
+                                             p.Labeled(
+                                                 "every",
+                                                 p.Optional_(
+                                                     p.Conditional(lambda: include_every,
+                                                                   p.Keyword("every", p.Interval()))))),
                                   valid_schedulable(app, include_until=False, include_every=include_every)))
 
 def format_time(dt: datetime.datetime) -> str:

@@ -164,7 +164,7 @@ class Keyword(Parser[T]):
         if args[0].lower() == self.keyword.lower():
             parse = self.parser(args[1:])
             if isinstance(parse, ParseFail):
-                return parse.forward(processed=1)
+                return parse.forward(message=f"after {self.keyword}", processed=1)
             assert isinstance(parse, ParseOK)
             return ParseOK(value=parse.value, processed=1+parse.processed)
         else:
@@ -515,6 +515,17 @@ class Seq(Parser[List[T]]):
         assert results
         return ParseOK(results, processed=total_processed)
 
+class Labeled(Parser[T]):
+    label: str
+    parser: Parser[T]
+
+    def __init__(self, label: str, parser: Parser[T]) -> None:
+        self.label = label
+        self.parser = parser
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        return self.parser(args)
+
 class OneOf(Parser[T]):
     parsers: Tuple[Parser[T], ...]
 
@@ -528,7 +539,10 @@ class OneOf(Parser[T]):
             result = parser.parse(args)
             if isinstance(result, ParseOK):
                 return result
-        return ParseFail(f"Invalid value", processed=0)
+        options = ", ".join([f"{parser.label}" for parser in self.parsers if isinstance(parser, Labeled)])
+        if options != "":
+            options = f" (expected one of {options})"
+        return ParseFail(f"Invalid value{options}", processed=0)
 
 class OneOfStrings(Parser[str]):
     strings: List[str]

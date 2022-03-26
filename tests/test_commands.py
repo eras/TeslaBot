@@ -459,7 +459,7 @@ class TestCommands(unittest.TestCase):
                              p.ParseFail("Expected foo", processed=0))
         with self.subTest():
             self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["foo"]),
-                             p.ParseFail("No argument provided", processed=1))
+                             p.ParseFail("No argument provided after foo", processed=1))
         with self.subTest():
             self.assertEqual(p.Keyword("foo", p.Capture(p.AnyStr())).parse(["foo", "hei"]),
                              p.ParseOK((["hei"], "hei"), processed=2))
