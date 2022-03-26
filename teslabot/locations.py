@@ -79,8 +79,8 @@ LocationAddArgs = Tuple[Tuple[str, Tuple[str, ...]], Optional[str]]
 LocationLsArgsValue = p.Empty()
 LocationLsArgs = Tuple[()]
 
-LocationRmArgsValue = p.Remaining(p.AnyStr())
-LocationRmArgs = str
+LocationRmArgsType = List[str]
+LocationRmArgsValue: p.Parser[LocationRmArgsType] = p.Remaining(p.List_(p.AnyStr()))
 
 LocationArgs = Callable[[CommandContext], Awaitable[None]]
 
@@ -109,7 +109,7 @@ class Locations(StateElement):
         self.cmds.register(commands.Function("ls", "List locations",
                                              LocationLsArgsValue,
                                              self._command_location_ls))
-        self.cmds.register(commands.Function("rm", "Remove location by name",
+        self.cmds.register(commands.Function("rm", "Remove locations by name",
                                              LocationRmArgsValue,
                                              self._command_location_rm))
 
@@ -156,11 +156,12 @@ class Locations(StateElement):
     async def _command_location_rm(self,
                                    context: CommandContext,
                                    args: LocationRmArgs) -> None:
-        name = args
+        names = args
         try:
-            await self.remove(name)
-            await context.control.send_message(context.to_message_context(),
-                                               f"Removed location {name}")
+            for name in names:
+                await self.remove(name)
+                await context.cmd.control.send_message(context.to_message_context(),
+                                                       f"Removed location {name}")
         except NoSuchLocationError as exn:
             await context.control.send_message(context.to_message_context(),
                                                str(exn))
