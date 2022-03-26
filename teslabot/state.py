@@ -1,3 +1,4 @@
+import os
 from configparser import ConfigParser
 from typing import List
 from abc import ABC, abstractmethod
@@ -26,6 +27,7 @@ class State:
     async def save(self) -> None:
         for element in self.elements:
             await element.save(self.state)
-        # TODO: use safe code for overwriting
-        with open(self.filename, 'w') as file:
+        tmp_file_name = self.filename + "~"
+        with open(tmp_file_name, 'w') as file:
             self.state.write(file)
+        os.replace(tmp_file_name, self.filename)
