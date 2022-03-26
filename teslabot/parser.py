@@ -554,6 +554,24 @@ class Delayed(Parser[T]):
     def parse(self, args: List[str]) -> ParseResult[T]:
         return self.parser().parse(args)
 
+class Condition(Protocol):
+    def __call__(self) -> bool:
+        ...
+
+class Conditional(Parser[T]):
+    parser: Parser[T]
+    condition: Condition
+
+    def __init__(self, condition: Callable[[], bool], parser: Parser[T]) -> None:
+        self.parser = parser
+        self.condition = condition
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        if self.condition():
+            return self.parser.parse(args)
+        else:
+            return ParseFail("Condition is false")
+
 class SomeOf(Parser[Tuple[Optional[T], ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely.
