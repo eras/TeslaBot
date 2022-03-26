@@ -368,13 +368,13 @@ class TestCommands(unittest.TestCase):
 
     def test_one_of(self) -> None:
         with self.subTest():
-            self.assertEqual(p.OneOf([p.Tag("tag1", p.Bool().any()),
-                                         p.Tag("tag2", p.AnyStr().any())])
+            self.assertEqual(p.OneOf(p.Tag("tag1", p.Bool().any()),
+                                     p.Tag("tag2", p.AnyStr().any()))
                              .parse(["moi"]),
                              p.ParseOK(("tag2", "moi"), processed=1))
         with self.subTest():
-            self.assertEqual(p.OneOf([p.Tag("tag1", p.Bool().any()),
-                                         p.Tag("tag2", p.AnyStr().any())])
+            self.assertEqual(p.OneOf(p.Tag("tag1", p.Bool().any()),
+                                     p.Tag("tag2", p.AnyStr().any()))
                              .parse(["true"]),
                              p.ParseOK(("tag1", True), processed=1))
         with self.subTest():

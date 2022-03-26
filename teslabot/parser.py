@@ -468,9 +468,9 @@ class Seq(Parser[List[T]]):
         return ParseOK(results, processed=total_processed)
 
 class OneOf(Parser[T]):
-    parsers: List[Parser[T]]
+    parsers: Tuple[Parser[T], ...]
 
-    def __init__(self, parsers: List[Parser[T]]) -> None:
+    def __init__(self, *parsers: Parser[T]) -> None:
         self.parsers = parsers
 
     def parse(self, args: List[str]) -> ParseResult[T]:

@@ -156,7 +156,7 @@ def valid_schedulable(app: "App") -> p.Parser[CommandWithArgs]:
         p.Adjacent(p.CaptureFixedStr("unlock"), valid_lock_unlock(app)).any(),
         p.Adjacent(p.CaptureFixedStr("share"), valid_share(app)).any(),
     ]
-    return p.CaptureOnly(p.OneOf(cmds))
+    return p.CaptureOnly(p.OneOf(*cmds))
 
 SetArgs = Callable[[CommandContext], Awaitable[None]]
 def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
@@ -164,7 +164,7 @@ def SetArgsParser(app: "App") -> p.Parser[SetArgs]:
 
 def valid_command(cmds: List[commands.Function[CommandContext, Any]]) -> p.Parser[CommandWithArgs]:
     cmd_parsers = [p.Adjacent(p.CaptureFixedStr(cmd.name), cmd.parser).any() for cmd in cmds]
-    return p.CaptureOnly(p.OneOf(cmd_parsers))
+    return p.CaptureOnly(p.OneOf(*cmd_parsers))
 
 ScheduleArgs = Tuple[Tuple[datetime.datetime, Optional[datetime.timedelta]], CommandWithArgs]
 def valid_schedule(app: "App") -> p.Parser[ScheduleArgs]:
