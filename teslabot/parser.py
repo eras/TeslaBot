@@ -29,9 +29,9 @@ class ParseResult(ABC, Generic[Parsed]):
 
     def __eq__(self, other: object) -> bool:
         if isinstance(self, ParseOK) and isinstance(other, ParseOK):
-            return (self.value, self.processed) == (other.value, other.processed)
+            return cast("ParseOK[Parsed]", self).equal(cast("ParseOK[Parsed]", other))
         if isinstance(self, ParseFail) and isinstance(other, ParseFail):
-            return self.message == other.message
+            return cast("ParseFail[Parsed]", self).equal(cast("ParseFail[Parsed]", other))
         return False
 
 class ParseOK(ParseResult[Parsed]):
@@ -51,13 +51,27 @@ class ParseOK(ParseResult[Parsed]):
             value = f"\"{value}\""
         return f"ParseOK({value}, {self.processed})"
 
+    def equal(self, other: "ParseOK[Parsed]") -> bool:
+        return (self.value, self.processed) == (other.value, other.processed)
+
 class ParseFail(ParseResult[Parsed]):
     message: str
-    def __init__(self, message: str):
+    processed: int
+    """How many args from invocation.args were processed"""
+
+    def __init__(self, message: str, processed: int):
         self.message = message
+        self.processed = processed
+
+    def forward(self, processed: int, message: Optional[str] = None) -> "ParseFail[Any]":
+        return ParseFail(message=self.message + ("" if message is None else " " + message),
+                         processed=self.processed + processed)
 
     def __repr__(self) -> str:
-        return f"ParseFail(\"{self.message}\")"
+        return f"ParseFail(\"{self.message}\", {self.processed})"
+
+    def equal(self, other: "ParseFail[Parsed]") -> bool:
+        return self.message == other.message and self.processed == other.processed
 
 class Parser(ABC, Generic[Parsed]):
     def __call__(self, args: List[str]) -> ParseResult[Parsed]:
@@ -83,18 +97,18 @@ class Empty(Parser[EmptyVal]):
         if len(args) == 0:
             return ParseOK((), processed=0)
         else:
-            return ParseFail("Expected no more arguments")
+            return ParseFail("Expected no more arguments", processed=0)
 
 class AnyStr(Parser[str]):
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         return ParseOK(args[0], processed=1)
 
 class RestAsStr(Parser[str]):
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         return ParseOK(" ".join(args), processed=len(args))
 
 class List_(Parser[List[T]]):
@@ -110,7 +124,8 @@ class List_(Parser[List[T]]):
             parse = self.parser(args[processed:])
             if isinstance(parse, ParseOK):
                 if parse.processed == 0:
-                    return ParseFail(f"RestAsList subparser returned empty parse, cannot iterate list")
+                    return ParseFail(f"RestAsList subparser returned empty parse, cannot iterate list",
+                                     processed=0)
                 parses.append(parse.value)
                 processed += parse.processed
             else:
@@ -125,11 +140,11 @@ class CaptureFixedStr(Parser[str]):
 
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         if args[0].lower() == self.fixed_string.lower():
             return ParseOK(args[0], processed=1)
         else:
-            return ParseFail(f"Expected {self.fixed_string}")
+            return ParseFail(f"Expected {self.fixed_string}", processed=0)
 
 class Keyword(Parser[T]):
     """Non-capturing fixed str + simple Adjacent rolled in one
@@ -145,15 +160,15 @@ class Keyword(Parser[T]):
 
     def parse(self, args: List[str]) -> ParseResult[T]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         if args[0].lower() == self.keyword.lower():
             parse = self.parser(args[1:])
             if isinstance(parse, ParseFail):
-                return parse
+                return parse.forward(processed=1)
             assert isinstance(parse, ParseOK)
             return ParseOK(value=parse.value, processed=1+parse.processed)
         else:
-            return ParseFail(f"Expected {self.keyword}")
+            return ParseFail(f"Expected {self.keyword}", processed=0)
 
 class Regex(Parser[Tuple[Optional[str], ...]]):
     regex: "re.Pattern[str]"
@@ -163,12 +178,13 @@ class Regex(Parser[Tuple[Optional[str], ...]]):
 
     def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[str], ...]]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         match = re.match(self.regex, args[0])
         if match:
             return ParseOK(match.groups(), processed=1)
         else:
-            return ParseFail(f"Failed to match regex {self.regex} with {args[0]}")
+            return ParseFail(f"Failed to match regex {self.regex} with {args[0]}",
+                             processed=0)
 
 class Int(Parser[int]):
     parser: Regex
@@ -184,19 +200,20 @@ class Int(Parser[int]):
             return ParseOK(int(result.value[0]), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
-            return ParseFail(result.message)
+            return ParseFail(result.message, processed=0)
 
 class Bool(Parser[bool]):
     def parse(self, args: List[str]) -> ParseResult[bool]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         value = args[0].lower()
         if ["on", "true", "1"].count(value):
             return ParseOK(True, processed=1)
         elif ["off", "false", "0"].count(value):
             return ParseOK(False, processed=1)
         else:
-            return ParseFail(f"Invalid argument \"{args[0]}\" for boolean")
+            return ParseFail(f"Invalid argument \"{args[0]}\" for boolean",
+                             processed=0)
 
 class Optional_(Parser[Optional[T]]):
     parser: Parser[T]
@@ -226,7 +243,7 @@ class ValidOrMissing(Parser[Optional[T]]):
                 return ParseOK(result.value, processed=result.processed)
             else:
                 assert isinstance(result, ParseFail)
-                return ParseFail(result.message)
+                return result.forward(processed=0)
 
 CT = TypeVar('CT', contravariant=True)
 
@@ -248,7 +265,7 @@ class Callback(Generic[T], Parser[Callable[[], None]]):
             return ParseOK(lambda: self.callback(result.value), processed=result.processed) # type: ignore
         else:
             assert isinstance(result, ParseFail)
-            return ParseFail(message=result.message)
+            return result.forward(processed=0)
 
 class Capture(Parser[Tuple[List[str], T]]):
     parser: Parser[T]
@@ -262,7 +279,7 @@ class Capture(Parser[Tuple[List[str], T]]):
             return ParseOK((args[0:result.processed], result.value), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
-            return ParseFail(message=result.message)
+            return result.forward(processed=0)
 
 class CaptureOnly(Parser[List[str]]):
     parser: Parser[Any]
@@ -292,7 +309,7 @@ class Map(Generic[T1, T2], Parser[T2]):
             return ParseOK(self.map[0](result.value), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
-            return ParseFail(result.message)
+            return result.forward(processed=0)
 
 class MapDict(Map[List[Tuple[TagT, T]], Mapping[TagT, T]]):
     parser: Parser[List[Tuple[TagT, T]]]
@@ -386,13 +403,14 @@ class Adjacent(Parser[Tuple[T1, T2]]):
                         assert isinstance(right, ParseOK)
                         left = self.parser_left.parse(sub_args[0:len(sub_args) - found_max_len])
                         if isinstance(left, ParseFail):
-                            return ParseFail(f"{left.message} while parsing left argument")
+                            return ParseFail(f"{left.message} while parsing left argument",
+                                             processed=0)
                         assert isinstance(left, ParseOK)
                         # there must be no gap between left and right parses
                         if left.processed == len(sub_args) - found_max_len:
                             break
                     if sub_args == []:
-                        return ParseFail(f"No adjacent arguments parsed completely")
+                        return ParseFail(f"No adjacent arguments parsed completely", processed=0)
                     sub_args = sub_args[0:len(sub_args) - 1]
                 return ParseOK((left.value, right.value), processed=left.processed + right.processed)
             return try_parses([lambda: try_with_right(args, True),
@@ -413,11 +431,12 @@ class Adjacent(Parser[Tuple[T1, T2]]):
                         assert isinstance(left, ParseOK)
                         right = self.parser_right.parse(sub_args[found_max_len:])
                         if isinstance(right, ParseFail):
-                            return ParseFail(f"{right.message} while parsing right argument")
+                            return right.forward(processed=found_max_len,
+                                                 message="while parsing right argument")
                         assert isinstance(right, ParseOK)
                         break
                     if sub_args == []:
-                        return ParseFail(f"No adjacent arguments parsed completely")
+                        return ParseFail(f"No adjacent arguments parsed completely", processed=0)
                     sub_args = sub_args[0:len(sub_args) - 1]
                 return ParseOK((left.value, right.value), processed=left.processed + right.processed)
             return try_parses([lambda: try_with_left(args, True),
@@ -436,11 +455,11 @@ class IfThen(Parser[T]):
         self.parser = Adjacent(parser_left, parser_right)
 
     def parse(self, args: List[str]) -> ParseResult[T]:
-        parse = self.parser(args)
-        if isinstance(parse, ParseFail):
-            return ParseFail(message=parse.message)
-        assert isinstance(parse, ParseOK)
-        return ParseOK(value=parse.value[1], processed=parse.processed)
+        result = self.parser(args)
+        if isinstance(result, ParseFail):
+            return result.forward(processed=0)
+        assert isinstance(result, ParseOK)
+        return ParseOK(value=result.value[1], processed=result.processed)
 
 class Remaining(Parser[T]):
     """Requires the underlying parser to parse all provided data, otherwise returns ParseFail"""
@@ -455,7 +474,7 @@ class Remaining(Parser[T]):
             if result.processed == len(args):
                 return result
             else:
-                return ParseFail("Extraneous input after command")
+                return ParseFail("Extraneous input after command", processed=result.processed)
         else:
             return result
 
@@ -487,7 +506,8 @@ class Seq(Parser[List[T]]):
         for index, parser in enumerate(self.parsers):
             result = parser.parse(args)
             if isinstance(result, ParseFail):
-                return ParseFail(f"{result.message} while parsing argument {index + 1}")
+                return ParseFail(f"{result.message} while parsing argument {index + 1}",
+                                 processed=total_processed)
             assert(isinstance(result, ParseOK))
             results.append(result.value)
             total_processed += result.processed
@@ -503,12 +523,12 @@ class OneOf(Parser[T]):
 
     def parse(self, args: List[str]) -> ParseResult[T]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         for parser in self.parsers:
             result = parser.parse(args)
             if isinstance(result, ParseOK):
                 return result
-        return ParseFail(f"Invalid value")
+        return ParseFail(f"Invalid value", processed=0)
 
 class OneOfStrings(Parser[str]):
     strings: List[str]
@@ -518,12 +538,12 @@ class OneOfStrings(Parser[str]):
 
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         if [str.lower() for str in self.strings].count(args[0].lower()):
             return ParseOK(args[0], processed=1)
         else:
             valid_values = ", ".join(self.strings)
-            return ParseFail(f"Expected one of {valid_values}")
+            return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 TEnum = TypeVar('TEnum', bound=Enum)
 
@@ -535,7 +555,7 @@ class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
 
     def parse(self, args: List[str]) -> ParseResult[TEnum]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         values = [enum for enum in self.enum.__members__.values()
                   if enum.value.lower() == args[0].lower()]
         if values:
@@ -543,7 +563,7 @@ class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
         else:
             strings = [enum.value for enum in self.enum.__members__.values()]
             valid_values = ", ".join(strings)
-            return ParseFail(f"Expected one of {valid_values}")
+            return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 class Delayed(Parser[T]):
     mk_validator: List[Callable[[], Parser[T]]]
@@ -570,7 +590,7 @@ class Conditional(Parser[T]):
         if self.condition():
             return self.parser.parse(args)
         else:
-            return ParseFail("Condition is false")
+            return ParseFail("Condition is false", processed=0)
 
 class SomeOf(Parser[Tuple[Optional[T], ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
@@ -615,7 +635,7 @@ class _SomeOfGeneral(Parser[T]):
     def parse(self, args: List[str]) -> ParseResult[T]:
         result = self.parsers.parse(args)
         if isinstance(result, ParseFail):
-            return ParseFail(message=result.message)
+            return result.forward(processed=0)
         assert isinstance(result, ParseOK)
         return cast(ParseResult[Any], result)
 
@@ -648,7 +668,7 @@ class Meters(Parser[float]):
     def parse(self, args: List[str]) -> ParseResult[float]:
         result = self.parser.parse(args)
         if isinstance(result, ParseFail):
-            return ParseFail(message=result.message)
+            return result.forward(processed=0)
         assert(isinstance(result, ParseOK))
         ((distance_str, ), unit) = result.value
         assert distance_str is not None
@@ -669,19 +689,19 @@ class Interval(Parser[datetime.timedelta]):
 
     def parse(self, args: List[str]) -> ParseResult[datetime.timedelta]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
         if isinstance(result, ParseFail):
-            return ParseFail("Failed to parse time interval")
+            return ParseFail("Failed to parse time interval", processed=0)
         assert(isinstance(result, ParseOK))
         hours = result.value[0]
         minutes = result.value[1]
         if hours is None and minutes is None:
-            return ParseFail("Failed to parse time interval")
+            return ParseFail("Failed to parse time interval", processed=0)
         delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
                                    minutes=coalesce(map_optional(minutes, int), 0))
         if delta.total_seconds() < 60:
-            return ParseFail("Too short interval")
+            return ParseFail("Too short interval", processed=0)
         return ParseOK(delta, processed=result.processed)
 
 class Time(Parser[datetime.datetime]):
@@ -694,10 +714,10 @@ class Time(Parser[datetime.datetime]):
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
         if len(args) == 0:
-            return ParseFail("No argument provided")
+            return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
         if isinstance(result, ParseFail):
-            return ParseFail("Failed to parse hh:mm")
+            return ParseFail("Failed to parse hh:mm", processed=0)
         else:
             assert isinstance(result, ParseOK)
             now = coalesce(self.now, datetime.datetime.now())
@@ -708,9 +728,9 @@ class Time(Parser[datetime.datetime]):
                 assert result.value[1] is not None
                 hh, mm = (int(result.value[0]), int(result.value[1]))
                 if hh is not None and hh > 23:
-                    return ParseFail("Hour cannot be >23")
+                    return ParseFail("Hour cannot be >23", processed=0)
                 elif mm > 59:
-                    return ParseFail("Minute cannot be >59")
+                    return ParseFail("Minute cannot be >59", processed=0)
                 date = coalesce(map_optional(self.now, lambda x: x.date()), datetime.date.today())
                 time_of_day = datetime.time(hh, mm)
                 time = datetime.datetime.combine(date, time_of_day)
@@ -720,7 +740,7 @@ class Time(Parser[datetime.datetime]):
                 hours = result.value[2]
                 minutes = result.value[3]
                 if hours is None and minutes is None:
-                    return ParseFail("Failed to parse relative time")
+                    return ParseFail("Failed to parse relative time", processed=0)
                 delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
                                            minutes=coalesce(map_optional(minutes, int), 0))
                 time = now + delta

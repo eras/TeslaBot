@@ -87,14 +87,14 @@ class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None
 
     def parse(self, args: List[str]) -> ParseResult[Callable[[Context], Awaitable[None]]]:
         if len(args) == 0:
-            return ParseFail("No command name")
+            return ParseFail("No command name", processed=0)
         invocation = Invocation(args[0], args[1:])
         if self.commands.has_command(invocation.name):
             async def invoke(context: Context) -> None:
                 await self.commands.invoke(context, invocation)
             return ParseOK(invoke, processed=len(args))
         else:
-            return ParseFail(f"No such command: {invocation.name}")
+            return ParseFail(f"No such command: {invocation.name}", processed=0)
 
 class Commands(Generic[Context]):
     _commands: List[Command[Context]]
