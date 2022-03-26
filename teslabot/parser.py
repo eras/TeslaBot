@@ -1,12 +1,16 @@
 import re
 import datetime
 from abc import ABC, abstractmethod
-from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type
+from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type, cast
 from typing_extensions import Protocol
 from enum import Enum
 from dataclasses import dataclass
 
 from .utils import coalesce, map_optional, round_to_next_second
+
+class Unknown(ABC):
+    """Used to represent unknown types; you get the actual type out from this with instanceof or casting"""
+    pass
 
 Parsed = TypeVar("Parsed")
 T = TypeVar("T")
@@ -66,6 +70,9 @@ class Parser(ABC, Generic[Parsed]):
 
     def any(self) -> "Parser[Any]":
         return self
+
+    def unknown(self) -> "Parser[Unknown]":
+        return cast(Parser[Unknown], self)
 
 EmptyVal = Tuple[()]
 
