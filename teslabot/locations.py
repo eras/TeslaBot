@@ -82,42 +82,38 @@ class LocationInfo(ABC):
     def from_coords(coords: Tuple[Optional[str], ...]) -> "LocationInfo":
         assert coords[0] is not None
         assert coords[1] is not None
-        return LocationInfoCoords(LatLon(float(coords[0]), float(coords[1])),
-                                  map_optional(coords[2], float))
+        return LocationInfoCoords(LatLon(float(coords[0]), float(coords[1])))
 
     @staticmethod
     def from_current(args: Tuple[Tuple[Optional[str], ...], Optional[str]]) -> "LocationInfo":
         current, vehicle_name = args
-        near_km = map_optional(current[0], lambda x: float(x))
-        return LocationInfoCurrent(vehicle_name=vehicle_name,
-                                   near_km=near_km)
+        return LocationInfoCurrent(vehicle_name=vehicle_name)
 
 @dataclass
 class LocationInfoCoords(LocationInfo):
     latlon: LatLon
-    near_km: Optional[float]
 
 @dataclass
 class LocationInfoCurrent(LocationInfo):
     vehicle_name: Optional[str]
-    near_km: Optional[float]
     def to_info_coords(self, latlon: LatLon) -> LocationInfoCoords:
-        return LocationInfoCoords(latlon=latlon, near_km=self.near_km)
+        return LocationInfoCoords(latlon=latlon)
 
 LocationRegexValue = \
-    p.Regex(r"^([0-9]+(?:\.[0-9]+)?),([0-9]+(?:\.[0-9]+)?)(?:,([0-9]+(?:\.[0-9]+)?))?$")
+    p.Regex(r"^([0-9]+(?:\.[0-9]+)?),([0-9]+(?:\.[0-9]+)?)?$")
 
 LocationCoordsValue : p.Parser[LocationInfo] = \
     p.OneOf(p.Map(map=LocationInfo.from_coords, parser=LocationRegexValue),
             p.Map(map=LocationInfo.from_current,
-                  parser=p.Adjacent(p.Regex(r"^current(?:,([0-9]+(\.[0-9]+)?))?$"),
+                  parser=p.Adjacent(p.Regex(r"^current?$"),
                                     p.Optional_(p.AnyStr()))))
 
-LocationAddArgs = Tuple[Tuple[str, LocationInfo], Optional[str]]
+LocationAddArgs = Tuple[Tuple[str, LocationInfo], Tuple[Optional[float], Optional[str]]]
 LocationAddArgsValue: p.Parser[LocationAddArgs] = \
-    p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(),
-                                      LocationCoordsValue),
-                           p.ValidOrMissing(p.RestAsStr())))
+    p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(), LocationCoordsValue),
+                           p.Adjacent(
+                               p.Optional_(p.Keyword("near", p.Meters())),
+                               p.ValidOrMissing(p.RestAsStr()))))
 
 LocationLsArgsValue = p.Empty()
 LocationLsArgs = Tuple[()]
@@ -156,7 +152,7 @@ class Locations(StateElement):
         state.add_element(self)
 
         self.cmds = commands.Commands[LocationCommandContextBase]()
-        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon[,near_km] [address]  or  add name current,[near_km] [vehicle name] [address]",
+        self.cmds.register(commands.Function("add", "Add a new location: add name lat,lon [near 200 m] [address]  or  add name current [vehicle name] [near 1 km] [address]",
                                              LocationAddArgsValue,
                                              self._command_location_add))
         self.cmds.register(commands.Function("ls", "List locations",
@@ -177,7 +173,8 @@ class Locations(StateElement):
     async def _command_location_add(self,
                                     context: LocationCommandContextBase,
                                     args: LocationAddArgs) -> None:
-        (name, coords), address = args
+        (name, coords), (near_m, address) = args
+        near_km = map_optional(near_m, lambda x: x / 1000.0)
         if isinstance(coords, LocationInfoCoords):
             loc_info: Optional[LocationInfoCoords] = coords
         else:
@@ -193,7 +190,7 @@ class Locations(StateElement):
         else:
             try:
                 await self.add(name, Location(lat=loc_info.latlon.lat, lon=loc_info.latlon.lon,
-                                              near_km=loc_info.near_km,
+                                              near_km=near_km,
                                               address=address))
                 await context.cmd.control.send_message(context.cmd.to_message_context(),
                                                        f"Added location {name}")
