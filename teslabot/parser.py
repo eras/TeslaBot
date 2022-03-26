@@ -153,20 +153,18 @@ class Keyword(Parser[T]):
         else:
             return ParseFail(f"Expected {self.keyword}")
 
-class Regex(Parser[Tuple[str, ...]]):
+class Regex(Parser[Tuple[Optional[str], ...]]):
     regex: "re.Pattern[str]"
-    groups: List[Union[int, str]]
 
-    def __init__(self, regex: str, groups: List[Union[int, str]]) -> None:
+    def __init__(self, regex: str) -> None:
         self.regex = re.compile(regex)
-        self.groups = groups
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[str, ...]]:
+    def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[str], ...]]:
         if len(args) == 0:
             return ParseFail("No argument provided")
         match = re.match(self.regex, args[0])
         if match:
-            return ParseOK(match.group(*self.groups), processed=1)
+            return ParseOK(match.groups(), processed=1)
         else:
             return ParseFail(f"Failed to match regex {self.regex} with {args[0]}")
 
@@ -175,11 +173,12 @@ class Int(Parser[int]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.parser = Regex(r"[0-9]+", [0])
+        self.parser = Regex(r"([0-9]+)")
 
     def parse(self, args: List[str]) -> ParseResult[int]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
+            assert result.value[0] is not None
             return ParseOK(int(result.value[0]), processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
@@ -587,7 +586,7 @@ class Interval(Parser[datetime.timedelta]):
     regex: Regex
 
     def __init__(self) -> None:
-        self.regex = Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$", [1, 2])
+        self.regex = Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$")
 
     def parse(self, args: List[str]) -> ParseResult[datetime.timedelta]:
         if len(args) == 0:
@@ -611,7 +610,7 @@ class Time(Parser[datetime.datetime]):
     now: Optional[datetime.datetime]
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
-        self.regex = Regex(r"^(?:([0-9]{1,2}):?([0-9]{2})|(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?)$", [1, 2, 3, 4])
+        self.regex = Regex(r"^(?:([0-9]{1,2}):?([0-9]{2})|(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?)$")
         self.now = now
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
@@ -627,6 +626,7 @@ class Time(Parser[datetime.datetime]):
                 # round to next second
                 now = round_to_next_second(now)
             if result.value[0] is not None:
+                assert result.value[1] is not None
                 hh, mm = (int(result.value[0]), int(result.value[1]))
                 if hh is not None and hh > 23:
                     return ParseFail("Hour cannot be >23")

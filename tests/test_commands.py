@@ -98,19 +98,19 @@ class TestCommands(unittest.TestCase):
 
     def test_regex(self) -> None:
         with self.subTest():
-            self.assertEqual(p.Regex(r".*", [0]).parse([""]),
-                             p.ParseOK("", processed=1))
+            self.assertEqual(p.Regex(r"(.*)").parse([""]),
+                             p.ParseOK(("",), processed=1))
         with self.subTest():
-            self.assertEqual(p.Regex(r".*", [0]).parse(["moi"]),
-                             p.ParseOK("moi", processed=1))
+            self.assertEqual(p.Regex(r"(.*)").parse(["moi"]),
+                             p.ParseOK(("moi",), processed=1))
         with self.subTest():
-            self.assertEqual(p.Regex(r".(oi)", [0]).parse(["moi"]),
-                             p.ParseOK("moi", processed=1))
+            self.assertEqual(p.Regex(r"(.(oi))").parse(["moi"]),
+                             p.ParseOK(("moi","oi"), processed=1))
         with self.subTest():
-            self.assertEqual(p.Regex(r".(oi)", [1]).parse(["moi"]),
-                             p.ParseOK("oi", processed=1))
+            self.assertEqual(p.Regex(r".(oi)").parse(["moi"]),
+                             p.ParseOK(("oi",), processed=1))
         with self.subTest():
-            self.assertEqual(p.Regex(r".(o)(i)", [1, 2]).parse(["moi"]),
+            self.assertEqual(p.Regex(r".(o)(i)").parse(["moi"]),
                              p.ParseOK(("o", "i"), processed=1))
 
     def test_map(self) -> None:

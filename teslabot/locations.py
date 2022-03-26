@@ -79,12 +79,14 @@ class Location:
 
 class LocationInfo(ABC):
     @staticmethod
-    def from_coords(coords: Tuple[str, ...]) -> "LocationInfo":
+    def from_coords(coords: Tuple[Optional[str], ...]) -> "LocationInfo":
+        assert coords[0] is not None
+        assert coords[1] is not None
         return LocationInfoCoords(LatLon(float(coords[0]), float(coords[1])),
                                   map_optional(coords[2], float))
 
     @staticmethod
-    def from_current(args: Tuple[Tuple[str, ...], Optional[str]]) -> "LocationInfo":
+    def from_current(args: Tuple[Tuple[Optional[str], ...], Optional[str]]) -> "LocationInfo":
         current, vehicle_name = args
         near_km = map_optional(current[0], lambda x: float(x))
         return LocationInfoCurrent(vehicle_name=vehicle_name,
@@ -103,12 +105,12 @@ class LocationInfoCurrent(LocationInfo):
         return LocationInfoCoords(latlon=latlon, near_km=self.near_km)
 
 LocationRegexValue = \
-    p.Regex(r"^([0-9]+(\.[0-9]+)?),([0-9]+(\.[0-9]+)?)(,([0-9]+(\.[0-9]+)?))?$", [1, 3, 6])
+    p.Regex(r"^([0-9]+(?:\.[0-9]+)?),([0-9]+(?:\.[0-9]+)?)(?:,([0-9]+(?:\.[0-9]+)?))?$")
 
 LocationCoordsValue : p.Parser[LocationInfo] = \
     p.OneOf(p.Map(map=LocationInfo.from_coords, parser=LocationRegexValue),
             p.Map(map=LocationInfo.from_current,
-                  parser=p.Adjacent(p.Regex(r"^current(?:,([0-9]+(\.[0-9]+)?))?$", [1]),
+                  parser=p.Adjacent(p.Regex(r"^current(?:,([0-9]+(\.[0-9]+)?))?$"),
                                     p.Optional_(p.AnyStr()))))
 
 LocationAddArgs = Tuple[Tuple[str, LocationInfo], Optional[str]]
