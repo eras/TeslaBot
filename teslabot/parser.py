@@ -535,14 +535,22 @@ class OneOf(Parser[T]):
     def parse(self, args: List[str]) -> ParseResult[T]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
+        longest_fail: Optional[ParseFail[T]] = None
         for parser in self.parsers:
             result = parser.parse(args)
             if isinstance(result, ParseOK):
                 return result
-        options = ", ".join([f"{parser.label}" for parser in self.parsers if isinstance(parser, Labeled)])
-        if options != "":
-            options = f" (expected one of {options})"
-        return ParseFail(f"Invalid value{options}", processed=0)
+            assert isinstance(result, ParseFail)
+            if not longest_fail or result.processed > longest_fail.processed:
+                longest_fail = result
+        assert longest_fail
+        if longest_fail.processed > 0:
+            return longest_fail.forward(processed=0)
+        else:
+            options = ", ".join([f"{parser.label}" for parser in self.parsers if isinstance(parser, Labeled)])
+            if options != "":
+                options = f" (expected one of {options})"
+            return ParseFail(f"Invalid value{options}", processed=longest_fail.processed)
 
 class OneOfStrings(Parser[str]):
     strings: List[str]
