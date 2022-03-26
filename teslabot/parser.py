@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type
 from typing_extensions import Protocol
 from enum import Enum
+from dataclasses import dataclass
 
 from .utils import coalesce, map_optional, round_to_next_second
 
@@ -286,6 +287,23 @@ class Tag(Map[T, Tuple[TagT, T]]):
             return (tag, x)
         super().__init__(parser, map=mapping)
         self.tag = tag
+
+@dataclass
+class Wrapped(Generic[T]):
+    value: T
+
+Wrapper = Callable[[T], Wrapped[T]]
+
+class Wrap(Map[T, Wrapped[T]]):
+    """Maps the result so that it is preceded by the given tag (in a 2-tuple)
+
+    Can be useful with VldSomeOf for identifying which values came back.
+    """
+
+    def __init__(self, wrapper: Wrapper[T], parser: Parser[T]) -> None:
+        def mapping(x: T) -> Wrapped[T]:
+            return wrapper(x)
+        super().__init__(parser, map=mapping)
 
 def try_parses(parses: List[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     value = None

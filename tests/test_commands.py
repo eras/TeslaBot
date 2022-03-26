@@ -342,6 +342,30 @@ class TestCommands(unittest.TestCase):
                              .parse(["true", "moi"]),
                              p.ParseOK({"tag1": True, "tag2": "moi"}, processed=2))
 
+    def test_wrap(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.Wrap(lambda a: p.Wrapped(a),
+                                    p.Bool()).parse([]),
+                             p.ParseFail("No argument provided"))
+
+        with self.subTest():
+            self.assertEqual(p.Wrap(lambda a: p.Wrapped(a),
+                                    p.Bool()).parse(["true"]),
+                             p.ParseOK(p.Wrapped(True), processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.Wrap(p.Wrapped,
+                                    p.Bool()).parse(["true"]),
+                             p.ParseOK(p.Wrapped(True), processed=1))
+
+        class CustomWrapped(p.Wrapped[p.T]):
+            pass
+
+        with self.subTest():
+            self.assertEqual(p.Wrap(CustomWrapped,
+                                    p.Bool()).parse(["true"]),
+                             p.ParseOK(CustomWrapped(True), processed=1))
+
     def test_one_of(self) -> None:
         with self.subTest():
             self.assertEqual(p.OneOf([p.Tag("tag1", p.Bool().any()),
