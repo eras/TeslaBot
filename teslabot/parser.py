@@ -582,6 +582,29 @@ class SomeOf(Parser[List[T]]):
             parsers = next_parsers
         return ParseOK(results, processed=total_processed)
 
+class Meters(Parser[float]):
+    parser: Parser[Tuple[Tuple[Optional[str], ...], str]]
+
+    def __init__(self) -> None:
+        self.parser = Adjacent(Regex(r"^([0-9]+(?:\.[0-9]+)?)$"),
+                               OneOfStrings(["m", "km"]))
+
+    def parse(self, args: List[str]) -> ParseResult[float]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseFail):
+            return ParseFail(message=result.message)
+        assert(isinstance(result, ParseOK))
+        ((distance_str, ), unit) = result.value
+        assert distance_str is not None
+        if unit == "m":
+            multiplier = 1
+        elif unit == "km":
+            multiplier = 1000
+        else:
+            assert False, f"Unhandled unit {unit}"
+        meters = float(distance_str) * multiplier
+        return ParseOK(meters, processed=result.processed)
+
 class Interval(Parser[datetime.timedelta]):
     regex: Regex
 
