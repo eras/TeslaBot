@@ -95,6 +95,26 @@ class RestAsStr(Parser[str]):
             return ParseFail("No argument provided")
         return ParseOK(" ".join(args), processed=len(args))
 
+class List_(Parser[List[T]]):
+    parser: Parser[T]
+
+    def __init__(self, parser: Parser[T]) -> None:
+        self.parser = parser
+
+    def parse(self, args: List[str]) -> ParseResult[List[T]]:
+        parses: List[T] = []
+        processed = 0
+        while processed < len(args):
+            parse = self.parser(args[processed:])
+            if isinstance(parse, ParseOK):
+                if parse.processed == 0:
+                    return ParseFail(f"RestAsList subparser returned empty parse, cannot iterate list")
+                parses.append(parse.value)
+                processed += parse.processed
+            else:
+                break
+        return ParseOK(parses, processed=processed)
+
 class CaptureFixedStr(Parser[str]):
     fixed_string: str
 

@@ -548,3 +548,33 @@ class TestCommands(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["00:70"]),
                              p.ParseFail("Minute cannot be >59"))
+
+    def test_rest_as_list(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.List_(p.AnyStr()).parse([]),
+                             p.ParseOK([], processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.AnyStr()).parse(["hello"]),
+                             p.ParseOK(["hello"], processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.Int()).parse(["1", "2"]),
+                             p.ParseOK([1, 2], processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2"]),
+                             p.ParseOK([(1, 2)], processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3"]),
+                             p.ParseOK([(1, 2)], processed=2))
+
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "moi"]),
+                             p.ParseOK([(1, 2)], processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.List_(p.Adjacent(p.Int(), p.Int())).parse(["1", "2", "3", "4"]),
+                             p.ParseOK([(1, 2), (3, 4)], processed=4))
