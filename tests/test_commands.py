@@ -412,17 +412,35 @@ class TestCommands(unittest.TestCase):
                              p.ParseOK(Test.b, processed=1))
 
 
-    def test_map_dict(self) -> None:
+    def test_some_of(self) -> None:
         with self.subTest():
-            self.assertEqual(p.MapDict(p.SomeOf([p.Tag("tag1", p.Bool().any()),
-                                                       p.Tag("tag2", p.AnyStr().any())]))
+            self.assertEqual(p.SomeOf(p.Tag("tag1", p.Bool().any()),
+                                      p.Tag("tag2", p.AnyStr().any()))
                              .parse(["moi"]),
-                             p.ParseOK({"tag2": "moi"}, processed=1))
+                             p.ParseOK((None, ('tag2', 'moi')), processed=1))
         with self.subTest():
-            self.assertEqual(p.MapDict(p.SomeOf([p.Tag("tag1", p.Bool().any()),
-                                                       p.Tag("tag2", p.AnyStr().any())]))
+            self.assertEqual(p.SomeOf(p.Tag("tag1", p.Bool().any()),
+                                      p.Tag("tag2", p.AnyStr().any()))
                              .parse(["true", "moi"]),
-                             p.ParseOK({"tag1": True, "tag2": "moi"}, processed=2))
+                             p.ParseOK((('tag1', True), ('tag2', 'moi')), processed=2))
+        with self.subTest():
+            self.assertEqual(p.SomeOf2(p.Tag("tag1", p.Bool()),
+                                       p.Tag("tag2", p.AnyStr()))
+                             .parse(["true", "moi"]),
+                             p.ParseOK((('tag1', True), ('tag2', 'moi')), processed=2))
+        with self.subTest():
+            self.assertEqual(p.SomeOf3(p.Tag("tag3", p.Int()),
+                                       p.Tag("tag1", p.Bool()),
+                                       p.Tag("tag2", p.AnyStr()))
+                             .parse(["true", "moi"]),
+                             p.ParseOK((None, ('tag1', True), ('tag2', 'moi')), processed=2))
+        with self.subTest():
+            self.assertEqual(p.SomeOf4(p.Tag("tag3", p.Int()),
+                                       p.Tag("tag1", p.Bool()),
+                                       p.Tag("tag2", p.AnyStr()),
+                                       p.Tag("tag4", p.AnyStr()))
+                             .parse(["true", "moi", "tidii"]),
+                             p.ParseOK((None, ('tag1', True), ('tag2', 'moi'), ('tag4', 'tidii')), processed=3))
 
     def test_lambda(self) -> None:
         with self.subTest():

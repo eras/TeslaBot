@@ -16,6 +16,8 @@ Parsed = TypeVar("Parsed")
 T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
+T3 = TypeVar("T3")
+T4 = TypeVar("T4")
 TagT = TypeVar('TagT')
 class ParseResult(ABC, Generic[Parsed]):
     def __str__(self) -> str:
@@ -552,35 +554,71 @@ class Delayed(Parser[T]):
     def parse(self, args: List[str]) -> ParseResult[T]:
         return self.parser().parse(args)
 
-class SomeOf(Parser[List[T]]):
+class SomeOf(Parser[Tuple[Optional[T], ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
-    and they can also be omitted in part or completely."""
+    and they can also be omitted in part or completely.
 
-    parsers: List[Parser[T]]
+    The order of fields in the returned list is the same as of the parsers."""
 
-    def __init__(self, parsers: List[Parser[T]]) -> None:
+    parsers: Tuple[Parser[T], ...]
+
+    def __init__(self, *parsers: Parser[T]) -> None:
         assert parsers, "VldSeq: expected at least one parser"
         self.parsers = parsers
 
-    def parse(self, args: List[str]) -> ParseResult[List[T]]:
-        parsers = self.parsers
+    def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[T], ...]]:
+        parsers = list(enumerate(self.parsers))
         total_processed = 0
         any_matched = True
-        results: List[T] = []
+        results: List[Optional[T]] = len(parsers) * [cast(Optional[T], None)]
         while any_matched:
             any_matched = False
-            next_parsers: List[Parser[T]] = []
-            for parser in parsers:
+            next_parsers: List[Tuple[int, Parser[T]]] = []
+            for index, parser in parsers:
                 result = parser.parse(args)
                 if isinstance(result, ParseOK):
-                    results.append(result.value)
+                    results[index] = result.value
                     total_processed += result.processed
                     args = args[result.processed:]
                     any_matched = True
                 else:
-                    next_parsers.append(parser)
+                    next_parsers.append((index, parser))
             parsers = next_parsers
-        return ParseOK(results, processed=total_processed)
+        return ParseOK(tuple(results), processed=total_processed)
+
+class _SomeOfGeneral(Parser[T]):
+    """Type-safe wrapper for SomeOf for parsing values of different types"""
+
+    parsers: Parser[Unknown]
+
+    def __init__(self, *parsers: Parser[Any]) -> None:
+        self.parsers = SomeOf(*[parser for parser in parsers]).unknown()
+
+    def parse(self, args: List[str]) -> ParseResult[T]:
+        result = self.parsers.parse(args)
+        if isinstance(result, ParseFail):
+            return ParseFail(message=result.message)
+        assert isinstance(result, ParseOK)
+        return cast(ParseResult[Any], result)
+
+class SomeOf2(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2]]]):
+    """Type-safe wrapper for SomeOf for parsing values of different types"""
+
+    def __init__(self, parser1: Parser[T1], parser2: Parser[T2]) -> None:
+        super().__init__(parser1, parser2)
+        self.parsers = SomeOf(parser1.unknown(), parser2.unknown()).unknown()
+
+class SomeOf3(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2], Optional[T3]]]):
+    """Type-safe wrapper for SomeOf for parsing values of different types"""
+
+    def __init__(self, parser1: Parser[T1], parser2: Parser[T2], parser3: Parser[T3]) -> None:
+        super().__init__(parser1, parser2, parser3)
+
+class SomeOf4(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4]]]):
+    """Type-safe wrapper for SomeOf for parsing values of different types"""
+
+    def __init__(self, parser1: Parser[T1], parser2: Parser[T2], parser3: Parser[T3], parser4: Parser[T4]) -> None:
+        super().__init__(parser1, parser2, parser3, parser4)
 
 class Meters(Parser[float]):
     parser: Parser[Tuple[Tuple[Optional[str], ...], str]]
