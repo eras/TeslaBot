@@ -202,6 +202,22 @@ class Int(Parser[int]):
             assert isinstance(result, ParseFail)
             return ParseFail(result.message, processed=0)
 
+class Float(Parser[float]):
+    parser: Regex
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parser = Regex(r"([0-9]+(?:.[0-9]+)?)")
+
+    def parse(self, args: List[str]) -> ParseResult[float]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseOK):
+            assert result.value[0] is not None
+            return ParseOK(float(result.value[0]), processed=result.processed)
+        else:
+            assert isinstance(result, ParseFail)
+            return ParseFail(result.message, processed=0)
+
 class Bool(Parser[bool]):
     def parse(self, args: List[str]) -> ParseResult[bool]:
         if len(args) == 0:
@@ -680,29 +696,6 @@ class SomeOf4(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2], Optional[T3], Opt
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2], parser3: Parser[T3], parser4: Parser[T4]) -> None:
         super().__init__(parser1, parser2, parser3, parser4)
 
-class Meters(Parser[float]):
-    parser: Parser[Tuple[Tuple[Optional[str], ...], str]]
-
-    def __init__(self) -> None:
-        self.parser = Adjacent(Regex(r"^([0-9]+(?:\.[0-9]+)?)$"),
-                               OneOfStrings(["m", "km"]))
-
-    def parse(self, args: List[str]) -> ParseResult[float]:
-        result = self.parser.parse(args)
-        if isinstance(result, ParseFail):
-            return result.forward(processed=0)
-        assert(isinstance(result, ParseOK))
-        ((distance_str, ), unit) = result.value
-        assert distance_str is not None
-        if unit == "m":
-            multiplier = 1
-        elif unit == "km":
-            multiplier = 1000
-        else:
-            assert False, f"Unhandled unit {unit}"
-        meters = float(distance_str) * multiplier
-        return ParseOK(meters, processed=result.processed)
-
 class Interval(Parser[datetime.timedelta]):
     regex: Regex
 
@@ -781,6 +774,39 @@ class PosIntSuffix(GeneralSuffix[int]):
     def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[int]:
         return SuffixInfo(value=int(assert_some(internal[0])),
                           suffix=assert_some(internal[1]))
+
+class PosFloatSuffix(GeneralSuffix[float]):
+    def __init__(self, suffixes: List[str]) -> None:
+        suffixes_re = re_of_alternatives(suffixes)
+        super().__init__(regex=r"^(?:([0-9]{1,4}(?:.[0-9]+)?)(" + suffixes_re + r"))$",
+                         suffixes=suffixes,
+                         parser=Float())
+
+    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[float]:
+        return SuffixInfo(value=float(assert_some(internal[0])),
+                          suffix=assert_some(internal[1]))
+
+class Meters(Parser[float]):
+    parser: PosFloatSuffix
+
+    def __init__(self) -> None:
+        self.parser = PosFloatSuffix(["m", "km"])
+
+    def parse(self, args: List[str]) -> ParseResult[float]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseFail):
+            return result.forward(processed=0)
+        assert(isinstance(result, ParseOK))
+        value = result.value
+        assert value.value is not None
+        if value.suffix == "m":
+            multiplier = 1
+        elif value.suffix == "km":
+            multiplier = 1000
+        else:
+            assert False, f"Unhandled unit {value.suffix}"
+        meters = value.value * multiplier
+        return ParseOK(meters, processed=result.processed)
 
 @dataclass
 class _TimeWrapped:

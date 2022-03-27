@@ -589,11 +589,11 @@ class TestParser(unittest.TestCase):
     def test_meters(self) -> None:
         with self.subTest():
             self.assertEqual(p.Meters().parse([]),
-                             p.ParseFail("No adjacent arguments parsed completely", processed=0))
+                             p.ParseFail("No argument provided", processed=0))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["hei"]),
-                             p.ParseFail("No adjacent arguments parsed completely", processed=0))
+                             p.ParseFail("Invalid value", processed=0))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["1"]),
@@ -604,16 +604,33 @@ class TestParser(unittest.TestCase):
                              p.ParseOK(1.0, processed=2))
 
         with self.subTest():
+            self.assertEqual(p.Meters().parse(["1m"]),
+                             p.ParseOK(1.0, processed=1))
+
+        with self.subTest():
             self.assertEqual(p.Meters().parse(["1.0", "m"]),
                              p.ParseOK(1.0, processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.Meters().parse(["1.0m"]),
+                             p.ParseOK(1.0, processed=1))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["1.0", "km"]),
                              p.ParseOK(1000.0, processed=2))
 
         with self.subTest():
+            self.assertEqual(p.Meters().parse(["1.0km"]),
+                             p.ParseOK(1000.0, processed=1))
+
+        with self.subTest():
             self.assertEqual(p.Meters().parse(["1.0", "mm"]),
                              p.ParseFail("Expected one of m, km while parsing right argument", processed=1))
+
+        with self.subTest():
+            # not the best error message..
+            self.assertEqual(p.Meters().parse(["1.0mm"]),
+                             p.ParseFail("No argument provided while parsing right argument", processed=1))
 
         with self.subTest():
             self.assertEqual(p.Meters().parse(["1.0", "m", "z"]),
