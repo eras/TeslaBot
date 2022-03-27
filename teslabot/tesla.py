@@ -118,20 +118,20 @@ class AppState(StateElement):
     def __init__(self, app: "App") -> None:
         self.app = app
 
-    async def save(self, state: ConfigParser) -> None:
+    async def save(self, state: State) -> None:
         entries = await self.app._scheduler.get_entries()
-        if not "tesla.timers" in state:
+        if not state.has_section("tesla.timers"):
             state["tesla.timers"] = {}
         timers = state["tesla.timers"]
         timers.clear()
         for entry in entries:
             timers[str(entry.context.info.id)] = json.dumps(timer_entry_to_json(entry))
-        if not "tesla" in state:
+        if not state.has_section("tesla"):
             state["tesla"] = {}
         state["tesla"]["location_detail"] = self.app.location_detail.value
 
         # TODO: move this to Control
-        if not "control" in state:
+        if not state.has_section("control"):
             state["control"] = {}
         state["control"]["require_bang"] = str(self.app.control.require_bang)
 
@@ -458,19 +458,19 @@ class App(ControlCallback):
                                             f"No timers matched")
 
     async def _load_state(self) -> None:
-        if self.state.state.has_section("tesla.timers"):
-            for id, timer in self.state.state["tesla.timers"].items():
+        if self.state.has_section("tesla.timers"):
+            for id, timer in self.state["tesla.timers"].items():
                 self._scheduler_id = max(self._scheduler_id, int(id) + 1)
                 entry = timer_entry_from_json(int(id), json.loads(timer), callback=self._activate_timer)
                 await self._scheduler.add(entry)
-        if self.state.state.has_section("tesla"):
-            location_detail_value = self.state.state.get("tesla", "location_detail", fallback=LocationDetail.Full.value)
+        if self.state.has_section("tesla"):
+            location_detail_value = self.state.get("tesla", "location_detail", fallback=LocationDetail.Full.value)
             matching_location_details = [enum for enum in LocationDetail.__members__.values() if enum.value == location_detail_value]
             self.location_detail = matching_location_details[0]
 
         # TODO: move this to Control
-        if self.state.state.has_section("control"):
-            self.control.require_bang = bool(self.state.state.get("control", "require_bang", fallback=str(self.control.require_bang)) == str(True))
+        if self.state.has_section("control"):
+            self.control.require_bang = bool(self.state.get("control", "require_bang", fallback=str(self.control.require_bang)) == str(True))
 
     async def _activate_timer(self, entry: scheduler.Entry[SchedulerContext]) -> None:
         info = entry.context.info

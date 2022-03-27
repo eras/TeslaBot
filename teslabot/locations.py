@@ -231,8 +231,8 @@ class Locations(StateElement):
 
 
     # StateElement.save
-    async def save(self, state: ConfigParser) -> None:
-        if not "locations" in state:
+    async def save(self, state: State) -> None:
+        if not state.has_section("locations"):
             state["locations"] = {}
         locations = state["locations"]
         locations.clear()
@@ -240,9 +240,9 @@ class Locations(StateElement):
             locations[name] = json.dumps({"name": name, "location": location.json()})
 
     def load(self) -> None:
-        if not self.state.state.has_section("locations"):
+        if not self.state.has_section("locations"):
             return
-        for name, location in self.state.state["locations"].items():
+        for name, location in self.state["locations"].items():
             if "location" in location:
                 data = json.loads(location)
                 orig_name = data["name"]

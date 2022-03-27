@@ -34,8 +34,8 @@ class StateSave(StateElement):
     def __init__(self, control: "SlackControl") -> None:
         self.control = control
 
-    async def save(self, state: ConfigParser) -> None:
-        if not "slack" in state:
+    async def save(self, state: State) -> None:
+        if state.has_section("slack"):
             state["slack"] = {}
         st = state["slack"]
         st["channel_id"]= get_optional(self.control._channel_id, "")
@@ -69,7 +69,7 @@ class SlackControl(control.Control):
         if channel_name[0] != "#":
             raise control.ConfigError("Expected channel name to start with #")
         self._channel_name = channel_name
-        self._channel_id = self._state.state.get("slack", "channel_id", fallback=None)
+        self._channel_id = self._state.get("slack", "channel_id", fallback=None)
         self._client = WebClient(token=api_token, run_async=True)
         self._aiohttp_session = aiohttp.ClientSession()
 

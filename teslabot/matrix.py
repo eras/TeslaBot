@@ -25,9 +25,9 @@ class StateSave(StateElement):
     def __init__(self, control: "MatrixControl") -> None:
         self.control = control
 
-    async def save(self, state: ConfigParser) -> None:
+    async def save(self, state: State) -> None:
         if self.control._logged_in:
-            if not "matrix" in state:
+            if not state.has_section("matrix"):
                 state["matrix"] = {}
             st = state["matrix"]
             st["admin_room_id"]= get_optional(self.control._admin_room_id, "")
@@ -70,14 +70,14 @@ class MatrixControl(control.Control):
                                    store_path=store_path)
         self._logged_in = False
         self._sync_token = None
-        if "sync_token" in self._state.state["matrix"] is not None and \
-           self._state.state["matrix"]["sync_token"] != "":
-            self._sync_token = self._state.state["matrix"]["sync_token"]
-        room_id = self._state.state["matrix"]["room_id"] if "room_id" in self._state.state["matrix"] else None
+        if self._state["matrix"].has_key("sync_token") and \
+           self._state["matrix"]["sync_token"] != "":
+            self._sync_token = self._state["matrix"]["sync_token"]
+        room_id = self._state["matrix"]["room_id"] if self._state["matrix"].has_key("room_id") else None
         if room_id == "":
             room_id = None
         self._room_id = room_id
-        admin_room_id = self._state.state["matrix"]["admin_room_id"] if "admin_room_id" in self._state.state["matrix"] else None
+        admin_room_id = self._state["matrix"]["admin_room_id"] if self._state["matrix"].has_key("admin_room_id") else None
         if admin_room_id == "":
             admin_room_id = None
         self._admin_room_id = admin_room_id
@@ -95,11 +95,11 @@ class MatrixControl(control.Control):
 
     async def setup(self) -> None:
         mx_config = self._config["matrix"] if self._config.has_section("matrix") else None
-        mx_state = self._state.state["matrix"] if "matrix" in self._state.state else None
+        mx_state = self._state["matrix"] if self._state.has_section("matrix") else None
         if mx_config is None:
             logger.error(f"Cannot setup matrix due to missing configuration")
             return
-        if mx_state is not None and "access_token" in mx_state and mx_state["access_token"] != "":
+        if mx_state is not None and mx_state.has_key("access_token") and mx_state["access_token"] != "":
             self._logged_in = True
             logger.debug(f"Using pre-existing credentials")
             self._client.restore_login(user_id=mx_config["mxid"],

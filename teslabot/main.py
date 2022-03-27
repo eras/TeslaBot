@@ -3,7 +3,7 @@ import asyncio
 from . import log
 from . import control
 from . import config
-from . import state
+from . import filestate
 from .env import Env
 from . import tesla
 from . import scheduler
@@ -36,7 +36,7 @@ async def async_main() -> None:
     logger.info("Starting")
     try:
         config_      = config.Config(filename=args.config)
-        state_       = state.State(filename=config_.get("common", "state_file"))
+        state_       = filestate.FileState(filename=config_.get("common", "state_file"))
         control_name = config_.get("common", "control")
         env          = Env(config=config_,
                            state=state_)
