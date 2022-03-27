@@ -6,7 +6,7 @@ from typing_extensions import Protocol
 from enum import Enum
 from dataclasses import dataclass
 
-from .utils import coalesce, map_optional, round_to_next_second
+from .utils import coalesce, map_optional, round_to_next_second, assert_some
 
 class Unknown(ABC):
     """Used to represent unknown types; you get the actual type out from this with instanceof or casting"""
@@ -726,12 +726,80 @@ class Interval(Parser[datetime.timedelta]):
             return ParseFail("Too short interval", processed=0)
         return ParseOK(delta, processed=result.processed)
 
+@dataclass
+class SuffixInfo(Generic[T]):
+    value: T
+    suffix: str # enum would be cooler?
+
+@dataclass
+class _SuffixWrapped(Generic[T]):
+    internal: Optional[Tuple[Optional[str], ...]] = None
+    """e.g. 42m"""
+
+    external: Optional[Tuple[T, str]] = None
+    """e.g. 42 m"""
+
+class GeneralSuffix(Parser[SuffixInfo[T]], ABC):
+    parser: Parser[_SuffixWrapped[T]]
+
+    def __init__(self, regex: str, suffixes: List[str],
+                 parser: Parser[T]) -> None:
+        self.parser = OneOf(
+            Map(map=lambda x: _SuffixWrapped(internal=x), parser=Regex(regex)),
+            Map(map=lambda x: _SuffixWrapped(external=x), parser=Adjacent(parser, OneOfStrings(suffixes))),
+        )
+
+    def parse(self, args: List[str]) -> ParseResult[SuffixInfo[T]]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseFail):
+            return result.forward(processed=0)
+        assert isinstance(result, ParseOK)
+        value = result.value
+        if value.internal:
+            return ParseOK(processed=result.processed, value=self.of_internal(value.internal))
+        else:
+            assert value.external
+            return ParseOK(processed=result.processed, value=self.of_external(value.external))
+
+    @abstractmethod
+    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[T]:
+        ...
+
+    def of_external(self, external: Tuple[T, str]) -> SuffixInfo[T]:
+        return SuffixInfo(value=external[0], suffix=external[1])
+
+def re_of_alternatives(alternatives: List[str]) -> str:
+    return "|".join([re.escape(x) for x in alternatives])
+
+class PosIntSuffix(GeneralSuffix[int]):
+    def __init__(self, suffixes: List[str]) -> None:
+        suffixes_re = re_of_alternatives(suffixes)
+        super().__init__(regex=r"^(?:([0-9]{1,4})(" + suffixes_re + r"))$",
+                         suffixes=suffixes,
+                         parser=Int())
+
+    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[int]:
+        return SuffixInfo(value=int(assert_some(internal[0])),
+                          suffix=assert_some(internal[1]))
+
+@dataclass
+class _TimeWrapped:
+    hhmm:    Optional[Tuple[Optional[str], ...]] = None
+    hm:      Optional[Tuple[Optional[str], ...]] = None
+    int_h_m: Optional[Tuple[Optional[SuffixInfo[int]],
+                            Optional[SuffixInfo[int]]]] = None
+
 class Time(Parser[datetime.datetime]):
-    regex: Regex
+    regex: Parser[_TimeWrapped]
     now: Optional[datetime.datetime]
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
-        self.regex = Regex(r"^(?:([0-9]{1,2}):?([0-9]{2})|(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?)$")
+        self.regex = OneOf(
+            Map(map=lambda x: _TimeWrapped(hhmm=x),    parser=Regex(r"^([0-9]{1,2}):?([0-9]{2})$")),
+            Map(map=lambda x: _TimeWrapped(hm=x),      parser=Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$")),
+            Map(map=lambda x: _TimeWrapped(int_h_m=x), parser=Adjacent(Optional_(PosIntSuffix(["h"])),
+                                                                       Optional_(PosIntSuffix(["m"])))),
+        )
         self.now = now
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
@@ -739,16 +807,18 @@ class Time(Parser[datetime.datetime]):
             return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
         if isinstance(result, ParseFail):
-            return ParseFail("Failed to parse hh:mm", processed=0)
+            return ParseFail("Failed to parse time", processed=0)
         else:
             assert isinstance(result, ParseOK)
             now = coalesce(self.now, datetime.datetime.now())
             if now.microsecond:
                 # round to next second
                 now = round_to_next_second(now)
-            if result.value[0] is not None:
-                assert result.value[1] is not None
-                hh, mm = (int(result.value[0]), int(result.value[1]))
+            value = result.value
+            if value.hhmm:
+                assert value.hhmm[0] is not None
+                assert value.hhmm[1] is not None
+                hh, mm = (int(value.hhmm[0]), int(value.hhmm[1]))
                 if hh is not None and hh > 23:
                     return ParseFail("Hour cannot be >23", processed=0)
                 elif mm > 59:
@@ -758,12 +828,21 @@ class Time(Parser[datetime.datetime]):
                 time = datetime.datetime.combine(date, time_of_day)
                 while time < now:
                     time += datetime.timedelta(days=1)
-            else:
-                hours = result.value[2]
-                minutes = result.value[3]
+            elif value.hm or value.int_h_m:
+                if value.hm:
+                    hours = map_optional(value.hm[0], int)
+                    minutes = map_optional(value.hm[1], int)
+                else:
+                    assert value.int_h_m
+                    def get(x: SuffixInfo[int]) -> int:
+                        return x.value
+                    hours = map_optional(value.int_h_m[0], get)
+                    minutes = map_optional(value.int_h_m[1], get)
                 if hours is None and minutes is None:
-                    return ParseFail("Failed to parse relative time", processed=0)
-                delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
-                                           minutes=coalesce(map_optional(minutes, int), 0))
+                    return ParseFail("Failed to parse time", processed=0)
+                delta = datetime.timedelta(hours=coalesce(hours, 0),
+                                           minutes=coalesce(minutes, 0))
                 time = now + delta
+            else:
+                assert False
             return ParseOK(time, processed=result.processed)

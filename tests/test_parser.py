@@ -481,10 +481,10 @@ class TestParser(unittest.TestCase):
                              p.ParseFail("No argument provided", processed=0))
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse([":00"]),
-                             p.ParseFail("Failed to parse hh:mm", processed=0))
+                             p.ParseFail("Failed to parse time", processed=0))
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["0:0"]),
-                             p.ParseFail("Failed to parse hh:mm", processed=0))
+                             p.ParseFail("Failed to parse time", processed=0))
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["00:00"]),
                              p.ParseOK(datetime.datetime.combine(today,
@@ -537,6 +537,24 @@ class TestParser(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Time(now=now).parse(["00:70"]),
                              p.ParseFail("Minute cannot be >59", processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["10", "m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 10)),
+                                       processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["10", "h"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(11, 0)),
+                                       processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["10", "h", "10m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(11, 10)),
+                                       processed=3))
 
     def test_rest_as_list(self) -> None:
         with self.subTest():
