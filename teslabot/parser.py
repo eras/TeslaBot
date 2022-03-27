@@ -299,7 +299,7 @@ class Map(Generic[T1, T2], Parser[T2]):
     parser: Parser[T1]
     map: List[Callable[[T1], T2]]
 
-    def __init__(self, parser: Parser[T1], map: Callable[[T1], T2]) -> None:
+    def __init__(self, map: Callable[[T1], T2], parser: Parser[T1]) -> None:
         self.parser = parser
         self.map = [map]
 
@@ -317,7 +317,7 @@ class MapDict(Map[List[Tuple[TagT, T]], Mapping[TagT, T]]):
     def __init__(self, parser: Parser[List[Tuple[TagT, T]]]) -> None:
         def mapping(xs: List[Tuple[TagT, T]]) -> Mapping[TagT, T]:
             return dict(xs)
-        super().__init__(parser, map=mapping)
+        super().__init__(parser=parser, map=mapping)
 
 class Tag(Map[T, Tuple[TagT, T]]):
     """Maps the result so that it is preceded by the given tag (in a 2-tuple)
@@ -330,7 +330,7 @@ class Tag(Map[T, Tuple[TagT, T]]):
     def __init__(self, tag: TagT, parser: Parser[T]) -> None:
         def mapping(x: T) -> Tuple[TagT, T]:
             return (tag, x)
-        super().__init__(parser, map=mapping)
+        super().__init__(parser=parser, map=mapping)
         self.tag = tag
 
 @dataclass
@@ -348,7 +348,7 @@ class Wrap(Map[T, Wrapped[T]]):
     def __init__(self, wrapper: Wrapper[T], parser: Parser[T]) -> None:
         def mapping(x: T) -> Wrapped[T]:
             return wrapper(x)
-        super().__init__(parser, map=mapping)
+        super().__init__(parser=parser, map=mapping)
 
 def try_parses(parses: List[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     value = None

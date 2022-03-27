@@ -88,13 +88,13 @@ class TestParser(unittest.TestCase):
         def negate(x: bool) -> bool:
             return not x
         with self.subTest():
-            self.assertEqual(p.Map(p.Bool(), negate).parse([]),
+            self.assertEqual(p.Map(parser=p.Bool(), map=negate).parse([]),
                              p.ParseFail("No argument provided", processed=0))
         with self.subTest():
-            self.assertEqual(p.Map(p.Bool(), negate).parse(["true"]),
+            self.assertEqual(p.Map(parser=p.Bool(), map=negate).parse(["true"]),
                              p.ParseOK(False, processed=1))
         with self.subTest():
-            self.assertEqual(p.Map(p.Bool(), negate).parse(["false"]),
+            self.assertEqual(p.Map(parser=p.Bool(), map=negate).parse(["false"]),
                              p.ParseOK(True, processed=1))
 
     # def test_one_of(self) -> None:
@@ -272,10 +272,10 @@ class TestParser(unittest.TestCase):
                              p.ParseOK([True, False], processed=2))
         with self.subTest():
             self.assertEqual(p
-                             .Seq([p.Seq([p.Map(p.Bool(), str).base(),
-                                                p.Map(p.AnyStr(), str)]),
-                                      p.Map[bool, List[str]](p.Bool(), lambda x: [str(x)]),
-                                      p.Map[p.EmptyVal, List[str]](p.Empty(), lambda _: [])])
+                             .Seq([p.Seq([p.Map(parser=p.Bool(), map=str).base(),
+                                                p.Map(parser=p.AnyStr(), map=str)]),
+                                      p.Map[bool, List[str]](parser=p.Bool(), map=lambda x: [str(x)]),
+                                      p.Map[p.EmptyVal, List[str]](parser=p.Empty(), map=lambda _: [])])
                              .parse(["1", "moi", "0"]),
                              p.ParseOK([["True", "moi"], ["False"], []], processed=3))
 
