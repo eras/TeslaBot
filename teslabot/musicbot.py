@@ -27,6 +27,7 @@ from .asyncthread import to_async
 from . import __version__
 from .appscheduler import AppScheduler
 from .appstorage import AppStorage, ItemId
+from .appplayer import AppPlayer
 
 logger = log.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class App(ControlCallback):
     _set_commands: commands.Commands[CommandContext]
     _scheduler: AppScheduler[CommandContext]
     _storage: AppStorage
+    _player: AppPlayer
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
@@ -74,6 +76,9 @@ class App(ControlCallback):
         c = commands
         self._storage = AppStorage(config=self.config,
                                    control=self.control)
+        self._player = AppPlayer(config=self.config,
+                                 control=self.control,
+                                 appstorage = self._storage)
         self._scheduler = AppScheduler(
             state=self.state,
             control=self.control,
@@ -83,10 +88,9 @@ class App(ControlCallback):
         self._commands = c.Commands()
         self._scheduler.register(self._commands)
         self._storage.register(self._commands)
+        self._player.register(self._commands)
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
-        self._commands.register(c.Function("play", "Play an item",
-                                           self._storage.valid_item(), self._command_play))
 
         self._set_commands = c.Commands()
         # TODO: move this to Control
@@ -99,9 +103,6 @@ class App(ControlCallback):
     async def _command_help(self, command_context: CommandContext, args: Tuple[()]) -> None:
         await self.control.send_message(command_context.to_message_context(),
                                         self._commands.help())
-
-    async def _command_play(self, context: CommandContext, item_id: ItemId) -> None:
-        pass
 
     async def command_callback(self,
                                command_context: CommandContext,
