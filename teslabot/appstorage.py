@@ -2,6 +2,7 @@ import datetime
 import json
 import time
 import os
+import re
 from typing import List, Tuple, Optional, Any, Callable, Awaitable, TypeVar, Generic
 from dataclasses import dataclass
 
@@ -47,8 +48,20 @@ class AppStorage:
         return f"{self.directory}/{item}"
 
     def valid_item(self) -> p.Parser[ItemId]:
-        # TODO: validate for .. etc attacks and existence
-        return p.AnyStr()
+        def check_exists(item: ItemId) -> Optional[str]:
+            if os.path.exists(self.item_file(item)):
+                return None
+            else:
+                return f"{item} does not exist"
+        def check_badness(item: ItemId) -> Optional[str]:
+            if re.match(r"^[/.]", item):
+                return f"Item name cannot start with . or /"
+            if re.search(r"/\.", item):
+                return f"Item component cannot start with ."
+            return None
+        return p.Validate(check_exists,
+                          p.Validate(check_badness,
+                                     p.AnyStr()))
 
     async def start(self) -> None:
         pass
