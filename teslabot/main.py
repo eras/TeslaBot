@@ -5,8 +5,8 @@ from . import control
 from . import config
 from . import filestate
 from .env import Env
-from . import tesla
 from . import scheduler
+from . import musicbot
 from . import __version__
 
 logger = log.getLogger(__name__)
@@ -23,7 +23,7 @@ async def async_main() -> None:
     logger.setLevel(log.INFO)
 
     scheduler. logger.setLevel(log.INFO)
-    tesla.     logger.setLevel(log.DEBUG)
+    musicbot.  logger.setLevel(log.DEBUG)
     control.   logger.setLevel(log.INFO)
 
     logger.info(f"Version: {__version__}")
@@ -51,7 +51,7 @@ async def async_main() -> None:
         else:
             logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
             return
-        app = tesla.App(env=env, control=control_)
+        app = musicbot.App(env=env, control=control_)
         await control_.setup()
         asyncio.create_task(control_.run())
         asyncio.create_task(app.run())
