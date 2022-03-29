@@ -700,7 +700,7 @@ class Interval(Parser[datetime.timedelta]):
     regex: Regex
 
     def __init__(self) -> None:
-        self.regex = Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$")
+        self.regex = Regex(r"^(?:(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?|(day|week))$")
 
     def parse(self, args: List[str]) -> ParseResult[datetime.timedelta]:
         if len(args) == 0:
@@ -709,12 +709,19 @@ class Interval(Parser[datetime.timedelta]):
         if isinstance(result, ParseFail):
             return ParseFail("Failed to parse time interval", processed=0)
         assert(isinstance(result, ParseOK))
-        hours = result.value[0]
-        minutes = result.value[1]
-        if hours is None and minutes is None:
+        if result.value[0] is not None or result.value[1] is not None:
+            hours = result.value[0]
+            minutes = result.value[1]
+            if hours is None and minutes is None:
+                return ParseFail("Failed to parse time interval", processed=0)
+            delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
+                                       minutes=coalesce(map_optional(minutes, int), 0))
+        elif result.value[2] == "day":
+            delta = datetime.timedelta(days=1)
+        elif result.value[2] == "week":
+            delta = datetime.timedelta(days=7)
+        else:
             return ParseFail("Failed to parse time interval", processed=0)
-        delta = datetime.timedelta(hours=coalesce(map_optional(hours, int), 0),
-                                   minutes=coalesce(map_optional(minutes, int), 0))
         if delta.total_seconds() < 60:
             return ParseFail("Too short interval", processed=0)
         return ParseOK(delta, processed=result.processed)

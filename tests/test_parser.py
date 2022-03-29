@@ -472,6 +472,12 @@ class TestParser(unittest.TestCase):
         with self.subTest():
             self.assertEqual(p.Interval().parse(["1h1m"]),
                              p.ParseOK(datetime.timedelta(hours=1, minutes=1), processed=1))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["day"]),
+                             p.ParseOK(datetime.timedelta(days=1), processed=1))
+        with self.subTest():
+            self.assertEqual(p.Interval().parse(["week"]),
+                             p.ParseOK(datetime.timedelta(days=7), processed=1))
 
     def test_time(self) -> None:
         now = datetime.datetime.fromisoformat("2022-02-22 01:00")
