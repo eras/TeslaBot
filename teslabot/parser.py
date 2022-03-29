@@ -630,6 +630,32 @@ class Conditional(Parser[T]):
         else:
             return ParseFail("Condition is false", processed=0)
 
+class ValidateCallable(Generic[CT], Protocol):
+    def __call__(self, value: CT) -> Optional[str]:
+        """If valid, return nothing, otherwise return error message"""
+        ...
+
+class Validate(Parser[CT]):
+    parser: Parser[CT]
+    validate: ValidateCallable[CT]
+
+    def __init__(self, validate: Callable[[CT], Optional[str]], parser: Parser[CT]) -> None:
+        self.parser = parser
+        # TODO: why does this not typecheck in mypy without cast?
+        # error: Incompatible types in assignment (expression has type "Callable[[CT], Optional[str]]", variable has type "ValidateCallable[CT]")
+        # note: "ValidateCallable[CT].__call__" has type "Callable[[Arg(CT, 'value')], Optional[str]]"
+        self.validate = cast(ValidateCallable[CT], validate)
+
+    def parse(self, args: List[str]) -> ParseResult[CT]:
+        result = self.parser.parse(args)
+        if isinstance(result, ParseFail):
+            return result.forward(processed=0)
+        assert isinstance(result, ParseOK)
+        validation = self.validate(result.value)
+        if isinstance(validation, str):
+            return ParseFail(validation, processed=0)
+        return result
+
 class SomeOf(Parser[Tuple[Optional[T], ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely.
