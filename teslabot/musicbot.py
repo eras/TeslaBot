@@ -9,6 +9,7 @@ import json
 from enum import Enum
 import math
 import time
+import subprocess
 
 import teslapy
 from urllib.error import HTTPError
@@ -91,6 +92,8 @@ class App(ControlCallback):
         self._player.register(self._commands)
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
+        self._commands.register(c.Function("ip", "Show IP",
+                                           p.Empty(), self._command_ip))
 
         self._set_commands = c.Commands()
         # TODO: move this to Control
@@ -103,6 +106,14 @@ class App(ControlCallback):
     async def _command_help(self, command_context: CommandContext, args: Tuple[()]) -> None:
         await self.control.send_message(command_context.to_message_context(),
                                         self._commands.help())
+
+    async def _command_ip(self, command_context: CommandContext, args: Tuple[()]) -> None:
+        with subprocess.Popen(["ip", "addr"], stdout=subprocess.PIPE, text=True) as proc:
+            assert proc.stdout
+            ipa = proc.stdout.read()
+
+        await self.control.send_message(command_context.to_message_context(),
+                                        ipa)
 
     async def command_callback(self,
                                command_context: CommandContext,
