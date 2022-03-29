@@ -125,7 +125,7 @@ class App(ControlCallback):
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
     _set_commands: commands.Commands[CommandContext]
-    _scheduler: AppScheduler
+    _scheduler: AppScheduler[CommandContext]
     locations: Locations
     location_detail: LocationDetail
 
