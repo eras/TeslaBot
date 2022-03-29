@@ -562,6 +562,18 @@ class TestParser(unittest.TestCase):
                                                                  datetime.time(11, 10)),
                                        processed=3))
 
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["2022-02-22", "12:00"]),
+                             p.ParseOK(datetime.datetime(year=2022, month=2, day=22,
+                                                         hour=12, minute=0, second=0),
+                                       processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.Time(now=now).parse(["12:00", "2022-02-22"]),
+                             p.ParseOK(datetime.datetime(year=2022, month=2, day=22,
+                                                         hour=12, minute=0, second=0),
+                                       processed=2))
+
     def test_rest_as_list(self) -> None:
         with self.subTest():
             self.assertEqual(p.List_(p.AnyStr()).parse([]),

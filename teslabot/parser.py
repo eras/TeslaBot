@@ -821,6 +821,8 @@ class _TimeWrapped:
     hm:      Optional[Tuple[Optional[str], ...]] = None
     int_h_m: Optional[Tuple[Optional[SuffixInfo[int]],
                             Optional[SuffixInfo[int]]]] = None
+    date:    Optional[Tuple[Tuple[Optional[str], ...],
+                            Tuple[Optional[str], ...]]] = None
 
 class Time(Parser[datetime.datetime]):
     regex: Parser[_TimeWrapped]
@@ -828,6 +830,12 @@ class Time(Parser[datetime.datetime]):
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
         self.regex = OneOf(
+            Map(map=lambda x: _TimeWrapped(date=(x[0], x[1])),
+                                                       parser=Adjacent(Regex(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$"),
+                                                                       Regex(r"^([0-9]{1,2}):?([0-9]{2})$"))),
+            Map(map=lambda x: _TimeWrapped(date=(x[1], x[0])),
+                                                       parser=Adjacent(Regex(r"^([0-9]{1,2}):?([0-9]{2})$"),
+                                                                       Regex(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$"))),
             Map(map=lambda x: _TimeWrapped(hhmm=x),    parser=Regex(r"^([0-9]{1,2}):?([0-9]{2})$")),
             Map(map=lambda x: _TimeWrapped(hm=x),      parser=Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$")),
             Map(map=lambda x: _TimeWrapped(int_h_m=x), parser=Adjacent(Optional_(PosIntSuffix(["h"])),
@@ -876,6 +884,18 @@ class Time(Parser[datetime.datetime]):
                 delta = datetime.timedelta(hours=coalesce(hours, 0),
                                            minutes=coalesce(minutes, 0))
                 time = now + delta
+            elif value.date:
+                year   = int(assert_some(value.date[0][0]))
+                month  = int(assert_some(value.date[0][1]))
+                day    = int(assert_some(value.date[0][2]))
+                hour   = int(assert_some(value.date[1][0]))
+                minute = int(assert_some(value.date[1][1]))
+                second = 0
+                try:
+                    time = datetime.datetime(year=year, month=month, day=day,
+                                             hour=hour, minute=minute, second=second)
+                except ValueError:
+                    return ParseFail(f"Failed to parse date", processed=0)
             else:
                 assert False
             return ParseOK(time, processed=result.processed)

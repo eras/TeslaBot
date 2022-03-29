@@ -135,6 +135,7 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 | !at 06:00 every 10m command            | Schedule at 06:00 and re-do every ten minutes                                                         |
 | !at 06:00 every 10m until 30m command  | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                          |
 | !at 06:00 every 10m until 7:00 command | Schedule at 06:00 and re-do every ten minutes until 30m                                               |
+| !at 2022-02-22 12:12 command           | Schedule comand at the given time                                                                     |
 | !atrm 42                               | Cancels a timer                                                                                       |
 | !atq                                   | Lists timers                                                                                          |
 | !set location-detail detail            | Defines how precisely the location is displayed. See !help.                                           |
