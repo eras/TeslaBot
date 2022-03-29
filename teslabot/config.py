@@ -69,4 +69,7 @@ class Config:
     def get(self, section: str, key: str,
             fallback: Optional[str] = None,
             empty_is_none: bool = True) -> str:
-        return Section(section, self._config[section]).get(key, fallback=fallback, empty_is_none=empty_is_none)
+        if section in self._config:
+            return Section(section, self._config[section]).get(key, fallback=fallback, empty_is_none=empty_is_none)
+        else:
+            raise ConfigNotFound(f"No such section \"{section}\"")
