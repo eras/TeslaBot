@@ -10,6 +10,7 @@ from enum import Enum
 import math
 import time
 import subprocess
+import os
 
 import teslapy
 from urllib.error import HTTPError
@@ -94,6 +95,8 @@ class App(ControlCallback):
                                            p.Empty(), self._command_help))
         self._commands.register(c.Function("ip", "Show IP",
                                            p.Empty(), self._command_ip))
+        self._commands.register(c.Function("restart", "Restart the bot",
+                                           p.Empty(), self._command_restart))
 
         self._set_commands = c.Commands()
         # TODO: move this to Control
@@ -114,6 +117,11 @@ class App(ControlCallback):
 
         await self.control.send_message(command_context.to_message_context(),
                                         ipa)
+
+    async def _command_restart(self, command_context: CommandContext, args: Tuple[()]) -> None:
+        await self.control.send_message(command_context.to_message_context(),
+                                        "Restarting")
+        os._exit(2) # TODO: ensure sys.exit() works
 
     async def command_callback(self,
                                command_context: CommandContext,
