@@ -1,8 +1,10 @@
 import argparse
 from configparser import ConfigParser, SectionProxy
-from typing import cast, List, Optional, Union
+from typing import cast, List, Optional, Union, Dict, Any
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import os
+
 
 class ConfigException(Exception):
     pass
@@ -20,7 +22,7 @@ class Args:
 
 def get_args() -> Args:
     parser = argparse.ArgumentParser(description='Process some integers.')
-    parser.add_argument('--config', type=str, default="teslabot.ini",
+    parser.add_argument('--config', type=str, default="config.ini",
                         help='Configuration file name')
     parser.add_argument('--version', action='store_true', help="Show version")
     return cast(Args, parser.parse_args())
@@ -54,11 +56,19 @@ class Config:
     _config: ConfigParser
 
     def __init__(self,
-                 filename: str) -> None:
+                 filename: str,
+                 config_dict: Dict[str, Dict[str, str]]) -> None:
         self.filename = filename
         self._config = ConfigParser()
-        if not self._config.read(filename):
-            raise ConfigFileNotFoundError(f"Cannot open config file {filename}")
+
+        # Try first to read config from plugin
+        
+        if config_dict is not None:
+            self._config.read_dict(config_dict)
+        else:
+            currentPath = os.path.dirname(__file__)
+            if not self._config.read(os.path.join(currentPath, filename)):
+                raise ConfigFileNotFoundError(f"Cannot open config file {filename}")
 
     def __getitem__(self, section: str) -> Section:
         return Section(section, self._config[section])

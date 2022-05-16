@@ -56,6 +56,18 @@ TODO: make these instructions a bit more complete
 
 Invite the bot to the room in the configuration.
 
+Set environment variables: 
+  - ENVIRONMENT: if running on google cloud, use gcp
+  - CHANNEL: slack channel
+  - CONTROL: slack / matrix
+  - EMAIL: tesla login email
+  - STORAGE: type of storage (local / firestore)
+  - GCP_PROJECT_ID: speaks for itself
+  - APPSECRETID: secret id for retrieving app key in google secret manager
+  - APISECRETID: secret id for retrieving api key in google secret manager
+
+Firestore requires the bot to be run on gcp, because authentication is done automatically there.
+
 ## Tesla
 
 On the first startup the bot needs given an authorization to the Tesla

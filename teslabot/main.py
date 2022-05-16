@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from . import log
 from . import control
@@ -8,6 +9,8 @@ from .env import Env
 from . import tesla
 from . import scheduler
 from . import __version__
+from importlib import metadata
+from google.cloud import firestore
 
 logger = log.getLogger(__name__)
 
@@ -35,9 +38,27 @@ async def async_main() -> None:
 
     logger.info("Starting")
     try:
-        config_      = config.Config(filename=args.config)
-        state_       = filestate.FileState(filename=config_.get("common", "state_file"))
-        control_name = config_.get("common", "control")
+        secrets = None
+        if os.getenv("ENVIRONMENT") == "gcp":
+            for ep in metadata.entry_points()['secret_sources']:
+                if ep.name == 'gcp':
+                    secrets = ep.load()()
+                    
+            if secrets is None: raise Exception('Secret source not found')
+            
+        config_      = config.Config(filename=args.config, 
+                                    config_dict=secrets)
+        _db: firestore.CollectionReference = None
+        storage = config_.get("common", "storage")
+        if storage == "firestore":
+            _db = firestore.Client().collection(u"tesla")
+            logger.info("Storage in firestore")
+        else:
+            logger.info("Local storage")
+        state_       = filestate.FileState(
+                            filename=config_.get("common", "state_file", fallback="state.ini"),
+                            _db = _db)
+        control_name = config_.get("common", "control", fallback="slack")
         env          = Env(config=config_,
                            state=state_)
         if control_name == "matrix":
