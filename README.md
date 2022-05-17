@@ -63,8 +63,8 @@ Set environment variables:
   - EMAIL: tesla login email
   - STORAGE: type of storage (local / firestore)
   - GCP_PROJECT_ID: speaks for itself
-  - APPSECRETID: secret id for retrieving app key in google secret manager
-  - APISECRETID: secret id for retrieving api key in google secret manager
+  - SLACK_APP_SECRET_ID: secret id for retrieving slack app key in google secret manager
+  - SLACK_API_SECRET_ID: secret id for retrieving slack api key in google secret manager
 
 Firestore requires the bot to be run on gcp, because authentication is done automatically there.
 

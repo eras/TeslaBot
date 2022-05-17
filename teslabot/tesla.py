@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union
 import re
 import datetime
 from configparser import ConfigParser
@@ -26,6 +26,7 @@ from .locations import Location, Locations, LocationArgs, LocationArgsParser, Lo
 from .asyncthread import to_async
 from . import __version__
 from .appscheduler import AppScheduler
+from google.cloud import firestore
 
 logger = log.getLogger(__name__)
 
@@ -118,6 +119,14 @@ def format_km(km: float) -> str:
     else:
         return f"{km:.2f} km"
 
+def cache_load() -> Dict[str, Any]:
+    cache: Dict[str, Any] = firestore.Client().collection(u'tesla').document(u'cache').get().to_dict()
+    return cache
+
+def cache_dump(cache: Dict) -> None:
+    cache_doc = firestore.Client().collection(u'tesla').document(u'cache')
+    cache_doc.set(cache)
+
 class App(ControlCallback):
     control: Control
     config: Config
@@ -136,9 +145,17 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         control.callback = self
+        cache_loader: Union[function, None] = None
+        cache_dumper: Union[function, None] = None
+        if self.state.get("common", "storage") == "cloud":
+            cache_loader = cache_load
+            cache_dumper = cache_dump
+
         cache_file=self.config.get("tesla", "credentials_store", fallback="cache.json")
         self.tesla = teslapy.Tesla(self.config.get("tesla", "email"),
-                                   cache_file=cache_file)
+                                   cache_file=cache_file,
+                                   cache_dumper=cache_dumper,
+                                   cache_loader=cache_loader)
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,

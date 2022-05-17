@@ -57,7 +57,7 @@ class Config:
 
     def __init__(self,
                  filename: str,
-                 config_dict: Dict[str, Dict[str, str]]) -> None:
+                 config_dict: Union[Dict[str, Dict[str, str]], None] = None) -> None:
         self.filename = filename
         self._config = ConfigParser()
 

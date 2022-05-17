@@ -1,6 +1,7 @@
 import asyncio
+from configparser import ConfigParser
 import datetime
-from typing import Optional, TypeVar, Callable, Awaitable, List
+from typing import Optional, TypeVar, Callable, Awaitable, List, Dict, Any
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -69,3 +70,13 @@ def map_optional(x: Optional[T], fn: Callable[[T], U]) -> Optional[U]:
         return None
     else:
         return fn(x)
+
+# Create json-like dict from ConfigParser data
+def parser_to_dict(parser: ConfigParser) -> Dict[str, Dict[str, Any]]:
+    json_dict: Dict[str, Dict[str, Any]]
+    for section in parser.sections():
+        json_dict[section] = {}
+        for key in parser[section]:
+            json_dict[section][key] = parser[section][key]
+
+    return json_dict

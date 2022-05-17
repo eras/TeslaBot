@@ -1,7 +1,9 @@
 import os
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 from configparser import ConfigParser
 from .state import Section, State
+from google.cloud import firestore
+from .utils import parser_to_dict
 
 class FileSection(Section):
     def __getitem__(self, key: str) -> str:
@@ -27,19 +29,32 @@ class FileSection(Section):
 class FileState(State):
     filename: str
     _state: ConfigParser
+    _state_ref: firestore.DocumentReference
 
     def __init__(self,
-                 filename: str) -> None:
+                 filename: str,
+                 _db: firestore.CollectionReference = None) -> None:
         super().__init__()
         self.filename = filename
         self._state = ConfigParser()
-        self._state.read(filename)
+        if _db is not None:
+            self._state_ref = _db.document(u'state')
+            state = self._state_ref.get()
+            self._state.read_dict(state)
+        else:
+            self._state_ref = None
+            self._state.read(filename)
+        
 
     async def save_to_storage(self) -> None:
-        tmp_file_name = self.filename + "~"
-        with open(tmp_file_name, 'w') as file:
-            self._state.write(file)
-        os.replace(tmp_file_name, self.filename)
+        if self._state_ref is not None:
+            data: Dict[str, Dict[str, Any]] = parser_to_dict(self._state)
+            self._state_ref.set(data)
+        else:
+            tmp_file_name = self.filename + "~"
+            with open(tmp_file_name, 'w') as file:
+                self._state.write(file)
+            os.replace(tmp_file_name, self.filename)
 
     def has_section(self, section: str) -> bool:
         return section in self._state
