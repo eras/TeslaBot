@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Union
 import os
 
 from google.cloud import secretmanager
-from plugin_exception import PluginException
+from .plugin_exception import PluginException
 
 class GCPException(PluginException):
     pass
@@ -20,7 +20,7 @@ def get_secrets() -> Union[None, Dict[str, Dict[str, str]]]:
     secret_manager = secretmanager.SecretManagerServiceClient()
     for env_key in secret_env_keys:
         secret_id = os.getenv(env_key)
-        if (secret_id == None):
+        if secret_id is None:
             raise GCPException((f"Couldn't find {env_key} from env variables!"))
         response = secret_manager.access_secret_version(request={
             "name": f"projects/{project_id}/secrets/{secret_id}/versions/latest",

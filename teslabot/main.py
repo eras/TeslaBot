@@ -12,7 +12,7 @@ from . import __version__
 from importlib import metadata
 from typing import Dict, Union
 from google.cloud import firestore
-from plugin_exception import PluginException
+from .plugin_exception import PluginException
 
 logger = log.getLogger(__name__)
 
