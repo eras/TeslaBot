@@ -12,6 +12,7 @@ from . import __version__
 from importlib import metadata
 from typing import Dict, Union
 from google.cloud import firestore
+from plugin_exception import PluginException
 
 logger = log.getLogger(__name__)
 
@@ -40,12 +41,15 @@ async def async_main() -> None:
     logger.info("Starting")
     try:
         secrets: Union[Dict[str, Dict[str, str]], None] = None
-        if os.getenv("ENVIRONMENT") == "gcp":
-            for ep in metadata.entry_points()['secret_sources']:
-                if ep.name == 'gcp':
-                    secrets = ep.load()()
-                    
-            if secrets is None: raise Exception('Secret source not found')
+        try:
+            if os.getenv("ENVIRONMENT") == "gcp":
+                for ep in metadata.entry_points()['secret_sources']:
+                    if ep.name == 'gcp':
+                        secrets = ep.load()()
+                        
+        except PluginException as exn:
+            logger.fatal(f"Configuration error: {exn.args[0]}")
+            raise SystemExit(1)
             
         config_      = config.Config(filename=args.config, 
                                     config_dict=secrets)

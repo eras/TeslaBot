@@ -123,7 +123,7 @@ def cache_load() -> Dict[str, Any]:
     cache: Dict[str, Any] = firestore.Client().collection(u'tesla').document(u'cache').get().to_dict()
     return cache
 
-def cache_dump(cache: Dict) -> None:
+def cache_dump(cache: Dict[str, Any]) -> None:
     cache_doc = firestore.Client().collection(u'tesla').document(u'cache')
     cache_doc.set(cache)
 
