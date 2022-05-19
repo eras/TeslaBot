@@ -38,7 +38,7 @@ def get_secrets() -> Union[None, Dict[str, Dict[str, str]]]:
             if not "tesla" in JSON_dict:
                 JSON_dict["tesla"] = {}
             JSON_dict["tesla"][key.lower()] = os.getenv(key)
-        elif key == ("CONTROL" or "STORAGE"):
+        elif key == "CONTROL" or key == "STORAGE":
             if not "common" in JSON_dict:
                 JSON_dict["common"] = {}
             JSON_dict["common"][key.lower()] = os.getenv(key)

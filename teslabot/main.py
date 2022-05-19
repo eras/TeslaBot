@@ -43,13 +43,9 @@ async def async_main() -> None:
         secrets: Union[Dict[str, Dict[str, str]], None] = None
         try:
             if os.getenv("ENVIRONMENT") == "gcp":
-                logger.info('Trying to find plugins!')
                 for ep in metadata.entry_points()['secret_sources']:
                     if ep.name == 'gcp':
-                        logger.info('Using gcp')
                         secrets = ep.load()()
-                        logger.info(f"Variables got from gcp! common: {secrets['common']}")
-            logger.info('No ENVIRONMENT found')
                         
         except PluginException as exn:
             logger.fatal(f"Configuration error: {exn.args[0]}")
