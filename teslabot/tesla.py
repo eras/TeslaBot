@@ -147,7 +147,7 @@ class App(ControlCallback):
         control.callback = self
         cache_loader: Union[function, None] = None
         cache_dumper: Union[function, None] = None
-        if self.state.get("common", "storage") == "cloud":
+        if self.config.get("common", "storage") == "cloud":
             cache_loader = cache_load
             cache_dumper = cache_dump
 
