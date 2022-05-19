@@ -59,10 +59,10 @@ class SlackControl(control.Control):
         self._state = env.state
         api_token = os.environ.get("SLACK_API_TOKEN")
         if api_token is None:
-            api_token = self._config.get("slack", "api_token")
+            api_token = self._config.get("slack", "SLACK_API_SECRET_ID")
         app_token = os.environ.get("SLACK_APP_TOKEN")
         if app_token is None:
-            app_token = self._config.get("slack", "app_token")
+            app_token = self._config.get("slack", "SLACK_APP_SECRET_ID")
         self._api_token = api_token
         self._app_token = app_token
         channel_name = self._config.get("slack", "channel", empty_is_none=True)

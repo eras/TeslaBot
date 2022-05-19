@@ -31,7 +31,7 @@ def get_secrets() -> Union[None, Dict[str, Dict[str, str]]]:
         secret_value = response.payload.data.decode("utf-8")
         if not "slack" in JSON_dict:
             JSON_dict["slack"] = {}
-        JSON_dict["slack"][secret_id] = secret_value
+        JSON_dict["slack"][env_key] = secret_value
     
     for key in env_cfg_keys:
         if key == "EMAIL":
