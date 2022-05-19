@@ -13,7 +13,7 @@ def get_secrets() -> Union[None, Dict[str, Dict[str, str]]]:
     if project_id is None: 
         raise GCPException((f"Couldn't find GCP_PROJECT_ID from env variables!"))
     
-    secret_env_keys: List[str] = ["TESLABOT_SLACK_API_SECRET", "TESLABOT_SLACK_APP_SECRET_ID"]
+    secret_env_keys: List[str] = ["SLACK_API_SECRET_ID", "SLACK_APP_SECRET_ID"]
     env_cfg_keys: List[str] = ["CHANNEL", "CONTROL", "EMAIL", "STORAGE"]
     JSON_dict: Dict[str, Dict[str, Any]] = {}
 
