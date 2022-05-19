@@ -46,6 +46,7 @@ async def async_main() -> None:
                 for ep in metadata.entry_points()['secret_sources']:
                     if ep.name == 'gcp':
                         secrets = ep.load()()
+                logger.debug(f"Variables got from plugin! common: {secrets['common']}")
                         
         except PluginException as exn:
             logger.fatal(f"Configuration error: {exn.args[0]}")
@@ -54,6 +55,7 @@ async def async_main() -> None:
         config_      = config.Config(filename=args.config, 
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
+        logger.debug(f"Has section common: {config_.has_section('common')}")
         storage = config_.get("common", "storage")
         if storage == "firestore":
             _db = firestore.Client().collection(u"tesla")
