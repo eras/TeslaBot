@@ -43,13 +43,13 @@ async def async_main() -> None:
         secrets: Union[Dict[str, Dict[str, str]], None] = None
         try:
             if os.getenv("ENVIRONMENT") == "gcp":
-                logger.debug('Trying to find plugins!')
+                logger.info('Trying to find plugins!')
                 for ep in metadata.entry_points()['secret_sources']:
                     if ep.name == 'gcp':
-                        logger.debug('Using gcp')
+                        logger.info('Using gcp')
                         secrets = ep.load()()
-                        logger.debug(f"Variables got from gcp! common: {secrets['common']}")
-            logger.debug('No ENVIRONMENT found')
+                        logger.info(f"Variables got from gcp! common: {secrets['common']}")
+            logger.info('No ENVIRONMENT found')
                         
         except PluginException as exn:
             logger.fatal(f"Configuration error: {exn.args[0]}")
@@ -58,7 +58,6 @@ async def async_main() -> None:
         config_      = config.Config(filename=args.config, 
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
-        logger.debug(f"Has section common: {config_.has_section('common')}")
         storage = config_.get("common", "storage")
         if storage == "firestore":
             _db = firestore.Client().collection(u"tesla")
