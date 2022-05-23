@@ -71,7 +71,7 @@ class SlackControl(control.Control):
         self._api_token = api_token
         self._app_token = app_token
         self._admin_channel_id = admin_channel_id
-        
+
         channel_name = self._config.get("slack", "channel", empty_is_none=True)
         if channel_name[0] != "#":
             raise control.ConfigError("Expected channel name to start with #")
