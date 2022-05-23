@@ -58,6 +58,7 @@ class SlackControl(control.Control):
         super().__init__()
         self._config = env.config
         self._state = env.state
+
         api_token = os.environ.get("SLACK_API_TOKEN")
         if api_token is None:
             api_token = self._config.get("slack", "slack_api_secret_id")
@@ -69,6 +70,8 @@ class SlackControl(control.Control):
             admin_channel_id = self._config.get("slack", "slack_admin_channel_id")
         self._api_token = api_token
         self._app_token = app_token
+        self._admin_channel_id = admin_channel_id
+        
         channel_name = self._config.get("slack", "channel", empty_is_none=True)
         if channel_name[0] != "#":
             raise control.ConfigError("Expected channel name to start with #")
