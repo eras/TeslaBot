@@ -14,7 +14,7 @@ def get_secrets() -> Union[None, Dict[str, Dict[str, str]]]:
         raise GCPException((f"Couldn't find GCP_PROJECT_ID from env variables!"))
     
     secret_env_keys: List[str] = ["SLACK_API_SECRET_ID", "SLACK_APP_SECRET_ID"]
-    env_cfg_keys: List[str] = ["CHANNEL", "CONTROL", "EMAIL", "STORAGE"]
+    env_cfg_keys: List[str] = ["CHANNEL", "CONTROL", "EMAIL", "STORAGE", "SLACK_ADMIN_CHANNEL_ID"]
     JSON_dict: Dict[str, Dict[str, Any]] = {}
 
     secret_manager = secretmanager.SecretManagerServiceClient()
