@@ -54,13 +54,12 @@ async def async_main() -> None:
         config_      = config.Config(filename=args.config, 
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
-        chan = config_.get("slack", "slack_admin_channel_id", empty_is_none=False)
         storage = config_.get("common", "storage")
         if storage == "firestore":
             _db = firestore.Client().collection(u"tesla")
             logger.info("Storage in firestore")
         else:
-            logger.info(f"Local storage, admin channel: {chan}")
+            logger.info("Local storage")
         state_       = filestate.FileState(
                             filename=config_.get("common", "state_file", fallback="state.ini"),
                             _db = _db)

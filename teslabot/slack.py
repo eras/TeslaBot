@@ -149,7 +149,7 @@ class SlackControl(control.Control):
                             text = json_message.get("payload", {}).get("event", {}).get("text", None)
                             bot = json_message.get("payload", {}).get("event", {}).get("bot_id", None)
                             if text is not None and bot is None:
-                                admin_room = False if json_message.get("payload", {}).get("event", {}).get("channel", None) is not self._admin_channel_id else True
+                                admin_room = json_message.get("payload", {}).get("event", {}).get("channel", None) == self._admin_channel_id
                                 command_context = CommandContext(admin_room=admin_room,
                                                                  control=self)
                                 await self.process_message(command_context, text)
