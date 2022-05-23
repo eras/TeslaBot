@@ -54,7 +54,8 @@ async def async_main() -> None:
         config_      = config.Config(filename=args.config, 
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
-        logger.debug(config_.get("slack", "slack_admin_channel_id"))
+        chan = config_.get("slack", "slack_admin_channel_id", empty_is_none=False)
+        logger.debug(f"admin channel: {chan}")
         storage = config_.get("common", "storage")
         if storage == "firestore":
             _db = firestore.Client().collection(u"tesla")
