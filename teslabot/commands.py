@@ -47,6 +47,8 @@ class Invocation:
     def parse(message: str) -> "Invocation":
         fields = re.split(r"  *", message)
         if len(fields):
+            if fields[-1].startswith('<') and fields[-1].endswith('<'):
+                fields[-1] = fields[-1][1:-1]
             return Invocation(name=fields[0],
                               args=fields[1:])
         else:
