@@ -162,8 +162,6 @@ class App(ControlCallback):
                                    code_verifier=code_verifier,
                                    state=auth_state)
 
-        print(self.tesla.code_verifier)
-        print(self.tesla.state)
         if self.tesla.code_verifier is None or self.tesla.state is None:
             self.tesla.code_verifier = self.tesla.new_code_verifier()
             self.tesla.state = self.tesla.new_state()
