@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast
 import re
 import datetime
 from configparser import ConfigParser
@@ -137,10 +137,12 @@ class App(ControlCallback):
     _scheduler: AppScheduler
     locations: Locations
     location_detail: LocationDetail
-    _auth_state: str | None
-    _auth_code_verifier: str | None
 
-    def __init__(self, control: Control, env: Env) -> None:
+    def __init__(self, 
+                control: Control, 
+                env: Env, 
+                auth_state: Optional[str] = None,
+                code_verifier: Optional[bytes] = None) -> None:
         self.control = control
         self.config = env.config
         self.state = env.state
@@ -152,22 +154,19 @@ class App(ControlCallback):
         if self.config.get("common", "storage") == "cloud":
             cache_loader = cache_load
             cache_dumper = cache_dump
-        self._auth_state = self.state.get("tesla", "auth_state", None)
-        self._auth_code_verifier = self.state.get("tesla", "code_verifier", None)
-
         cache_file=self.config.get("tesla", "credentials_store", fallback="cache.json")
         self.tesla = teslapy.Tesla(self.config.get("tesla", "email"),
                                    cache_file=cache_file,
                                    cache_dumper=cache_dumper,
                                    cache_loader=cache_loader,
-                                   code_verifier=self._auth_code_verifier,
-                                   state=self._auth_state)
+                                   code_verifier=code_verifier,
+                                   state=auth_state)
 
-        if self._auth_state is None or self._auth_code_verifier is None:
-            self._auth_state = self.tesla.new_state()
-            self._auth_code_verifier = self.tesla.new_code_verifier()
-            self.state.__setitem__("tesla", {"auth_state", self._auth_state})
-            self.state.__setitem__("tesla", {"code_verifier", self._auth_code_verifier.decode()})
+        print(self.tesla.code_verifier)
+        print(self.tesla.state)
+        if self.tesla.code_verifier is None or self.tesla.state is None:
+            self.tesla.code_verifier = self.tesla.new_code_verifier()
+            self.tesla.state = self.tesla.new_state()
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,
@@ -518,9 +517,6 @@ class App(ControlCallback):
             return vehicle.command(command, on=mode)
         await self._command_on_vehicle(context, vehicle_name, call)
 
-    async def save_current_state(self) -> None:
-        await self.state.save()
-
     async def run(self) -> None:
         await self._scheduler.start()
         await self._load_state()
@@ -528,4 +524,4 @@ class App(ControlCallback):
         self.state.add_element(AppState(self))
 
         if not self.tesla.authorized:
-            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url(code_verifier=self._auth_code_verifier)} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url(code_verifier=self.tesla.code_verifier)} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
