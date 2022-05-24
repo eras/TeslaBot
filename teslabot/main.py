@@ -78,6 +78,8 @@ async def async_main() -> None:
             logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
             return
         app = tesla.App(env=env, control=control_)
+        await app.save_current_state()
+        app = tesla.App(env=env, control=control_)
         await control_.setup()
         asyncio.create_task(control_.run())
         asyncio.create_task(app.run())

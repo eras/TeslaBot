@@ -137,6 +137,8 @@ class App(ControlCallback):
     _scheduler: AppScheduler
     locations: Locations
     location_detail: LocationDetail
+    _auth_state: str | None
+    _auth_code_verifier: str | None
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
@@ -150,12 +152,22 @@ class App(ControlCallback):
         if self.config.get("common", "storage") == "cloud":
             cache_loader = cache_load
             cache_dumper = cache_dump
+        self._auth_state = self.state.get("tesla", "auth_state", None)
+        self._auth_code_verifier = self.state.get("tesla", "code_verifier", None)
 
         cache_file=self.config.get("tesla", "credentials_store", fallback="cache.json")
         self.tesla = teslapy.Tesla(self.config.get("tesla", "email"),
                                    cache_file=cache_file,
                                    cache_dumper=cache_dumper,
-                                   cache_loader=cache_loader)
+                                   cache_loader=cache_loader,
+                                   code_verifier=self._auth_code_verifier,
+                                   state=self._auth_state)
+
+        if self._auth_state is None or self._auth_code_verifier is None:
+            self._auth_state = self.tesla.new_state()
+            self._auth_code_verifier = self.tesla.new_code_verifier()
+            self.state.__setitem__("tesla", {"auth_state", self._auth_state})
+            self.state.__setitem__("tesla", {"code_verifier", self._auth_code_verifier.decode()})
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,
@@ -283,11 +295,11 @@ class App(ControlCallback):
         if not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         else:
-            await self.control.send_message(context.to_message_context(), "Authorization successful")
             # https://github.com/python/mypy/issues/9590
             def call() -> None:
                 self.tesla.fetch_token(authorization_response=authorization_response)
             await to_async(call)
+            await self.control.send_message(context.to_message_context(), "Authorization successful")
             vehicles = self.tesla.vehicle_list()
             await self.control.send_message(context.to_message_context(), str(vehicles[0]))
 
@@ -506,10 +518,14 @@ class App(ControlCallback):
             return vehicle.command(command, on=mode)
         await self._command_on_vehicle(context, vehicle_name, call)
 
+    async def save_current_state(self) -> None:
+        await self.state.save()
+
     async def run(self) -> None:
         await self._scheduler.start()
         await self._load_state()
         await self.control.send_message(MessageContext(admin_room=False), f"TeslaBot {__version__} started")
         self.state.add_element(AppState(self))
+
         if not self.tesla.authorized:
-            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url(code_verifier=self._auth_code_verifier)} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
