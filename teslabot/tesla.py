@@ -294,7 +294,8 @@ class App(ControlCallback):
         else:
             # https://github.com/python/mypy/issues/9590
             def call() -> None:
-                self.tesla.fetch_token(authorization_response=authorization_response)
+                self.tesla.fetch_token(authorization_response=authorization_response,
+                                        code_verifier=self.tesla.code_verifier)
             await to_async(call)
             await self.control.send_message(context.to_message_context(), "Authorization successful")
             vehicles = self.tesla.vehicle_list()
