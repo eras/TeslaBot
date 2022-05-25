@@ -140,9 +140,7 @@ class App(ControlCallback):
 
     def __init__(self, 
                 control: Control, 
-                env: Env, 
-                auth_state: Optional[str] = None,
-                code_verifier: Optional[bytes] = None) -> None:
+                env: Env) -> None:
         self.control = control
         self.config = env.config
         self.state = env.state
@@ -158,13 +156,7 @@ class App(ControlCallback):
         self.tesla = teslapy.Tesla(self.config.get("tesla", "email"),
                                    cache_file=cache_file,
                                    cache_dumper=cache_dumper,
-                                   cache_loader=cache_loader,
-                                   code_verifier=code_verifier,
-                                   state=auth_state)
-
-        if self.tesla.code_verifier is None or self.tesla.state is None:
-            self.tesla.code_verifier = self.tesla.new_code_verifier()
-            self.tesla.state = self.tesla.new_state()
+                                   cache_loader=cache_loader)
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,
@@ -294,8 +286,7 @@ class App(ControlCallback):
         else:
             # https://github.com/python/mypy/issues/9590
             def call() -> None:
-                self.tesla.fetch_token(authorization_response=authorization_response,
-                                        code_verifier=self.tesla.code_verifier)
+                self.tesla.fetch_token(authorization_response=authorization_response)
             await to_async(call)
             await self.control.send_message(context.to_message_context(), "Authorization successful")
             vehicles = self.tesla.vehicle_list()
@@ -523,4 +514,4 @@ class App(ControlCallback):
         self.state.add_element(AppState(self))
 
         if not self.tesla.authorized:
-            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url(code_verifier=self.tesla.code_verifier)} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+            await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")

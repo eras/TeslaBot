@@ -47,8 +47,9 @@ class Invocation:
     def parse(message: str) -> "Invocation":
         fields = re.split(r"  *", message)
         if len(fields):
+            # Additional parser for slack mrkdwn links
             if fields[-1].startswith('<') and fields[-1].endswith('>'):
-                fields[-1] = fields[-1][1:-1]
+                fields[-1] = fields[-1][1:-1].replace("&amp;", "&")
             logger.debug(f"Command: {fields}")
             return Invocation(name=fields[0],
                               args=fields[1:])
