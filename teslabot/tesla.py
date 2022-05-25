@@ -195,6 +195,8 @@ class App(ControlCallback):
                                            self._command_location))
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
+        self._commands.register(c.Function("logout", "Log out from current user - authenticate again with !authorize",
+                                           p.Empty(), self._command_logout))
 
         self._set_commands = c.Commands()
         self._set_commands.register(c.Function("location-detail", "full, near, at, nearest",
@@ -209,6 +211,17 @@ class App(ControlCallback):
     async def _command_help(self, command_context: CommandContext, args: Tuple[()]) -> None:
         await self.control.send_message(command_context.to_message_context(),
                                         self._commands.help())
+
+    async def _command_logout(self, context: CommandContext, args: Tuple[()]) -> None:
+        if not self.tesla.authorized:
+            await self.control.send_message(context.to_message_context(), "There is no user authorized! Please use !authorize.")
+        elif not context.admin_room:
+            await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
+        else:
+            def call() -> None:
+                self.tesla.logout()
+            await to_async(call)
+            await self.control.send_message(context.to_message_context(), "Logout successful!")
 
     async def command_callback(self,
                                command_context: CommandContext,
