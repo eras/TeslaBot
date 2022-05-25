@@ -173,7 +173,7 @@ class App(ControlCallback):
         self._commands = c.Commands()
         self._scheduler.register(self._commands)
         self._commands.register(c.Function("authorize", "Pass the Tesla API authorization URL",
-                                           p.AnyStr(), self._command_authorized))
+                                           p.ValidOrMissing(p.Url()), self._command_authorized))
         self._commands.register(c.Function("vehicles", "List vehicles",
                                            p.Empty(), self._command_vehicles))
         self._commands.register(c.Function("climate", "climate on|off [vehicle] - control climate",
@@ -280,17 +280,23 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         f"Require bang set to {self.control.require_bang}")
 
-    async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
-        if not context.admin_room:
+    async def _command_authorized(self, context: CommandContext, authorization_response: Optional[str]) -> None:
+        if self.tesla.authorized:
+            await self.control.send_message(context.to_message_context(), "Already authorized!")
+        elif not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         else:
-            # https://github.com/python/mypy/issues/9590
-            def call() -> None:
-                self.tesla.fetch_token(authorization_response=authorization_response)
-            await to_async(call)
-            await self.control.send_message(context.to_message_context(), "Authorization successful")
-            vehicles = self.tesla.vehicle_list()
-            await self.control.send_message(context.to_message_context(), str(vehicles[0]))
+            if authorization_response is not None:
+                # https://github.com/python/mypy/issues/9590
+                def call() -> None:
+                    self.tesla.fetch_token(authorization_response=authorization_response)
+                await to_async(call)
+                await self.control.send_message(context.to_message_context(), "Authorization successful")
+                vehicles = self.tesla.vehicle_list()
+                await self.control.send_message(context.to_message_context(), str(vehicles[0]))
+            elif not self.tesla.authorized:
+                await self.control.send_message(context.to_message_context(), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+
 
     async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
         vehicles = self.tesla.vehicle_list()
