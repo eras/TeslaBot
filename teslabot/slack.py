@@ -180,8 +180,6 @@ class SlackControl(control.Control):
                 json={"channel": self._channel_id,
                       "text": message}
             ))
-            if response["message"]["text"] != message:
-                raise control.MessageSendError("Sent message different from requested")
         except SlackApiError as exn:
             assert exn.response["ok"] is False
             error = exn.response["error"] # str like 'invalid_auth', 'channel_not_found'
