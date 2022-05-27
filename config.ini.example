@@ -23,6 +23,9 @@ password = secret_password
 trust_mxids = @youruserid:matrix.org,@anotherid:example.com
 
 [slack]
-oauth =
-signing_secret =
+slack_api_secret_id =     <slack api key>
+slack_app_secret_id =     <slack app key>
+# Channel from which you can authorize and logout
+slack_admin_channel_id =  <admin channel id from slack>
+# Channel where all the messages are sent
 channel = #teslacontrol
