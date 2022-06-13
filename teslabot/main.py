@@ -41,7 +41,7 @@ async def async_main() -> None:
     try:
         secrets: Union[Dict[str, Dict[str, str]], None] = None
         try:
-            from importlib import metadata
+            from importlib import metadata # type: ignore
             if os.getenv("ENVIRONMENT") == "gcp":
                 for ep in metadata.entry_points()['secret_sources']:
                     if ep.name == 'gcp':

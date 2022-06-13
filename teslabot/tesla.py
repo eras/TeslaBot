@@ -134,7 +134,7 @@ class App(ControlCallback):
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
     _set_commands: commands.Commands[CommandContext]
-    _scheduler: AppScheduler
+    _scheduler: AppScheduler[None]
     locations: Locations
     location_detail: LocationDetail
 
@@ -147,8 +147,8 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         control.callback = self
-        cache_loader: Union[function, None] = None
-        cache_dumper: Union[function, None] = None
+        cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
+        cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
         if self.config.get("common", "storage") == "cloud":
             cache_loader = cache_load
             cache_dumper = cache_dump
