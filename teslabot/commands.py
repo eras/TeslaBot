@@ -47,6 +47,7 @@ class Invocation:
     def parse(message: str) -> "Invocation":
         fields = re.split(r"  *", message)
         if len(fields):
+            logger.debug(f"Command: {fields}")
             return Invocation(name=fields[0],
                               args=fields[1:])
         else:

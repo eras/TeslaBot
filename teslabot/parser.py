@@ -105,6 +105,15 @@ class AnyStr(Parser[str]):
             return ParseFail("No argument provided", processed=0)
         return ParseOK(args[0], processed=1)
 
+# Handles slack mrkdwn links
+class Url(Parser[str]):
+    def parse(self, args: List[str]) -> ParseResult[str]:
+        if len(args) == 0:
+            return ParseFail("No argument provided", processed=0)
+        if args[0].startswith('<') and args[0].endswith('>'):
+            args[0] = args[0][1:-1].replace("&amp;", "&")
+        return ParseOK(args[0], processed=1)
+
 class RestAsStr(Parser[str]):
     def parse(self, args: List[str]) -> ParseResult[str]:
         if len(args) == 0:

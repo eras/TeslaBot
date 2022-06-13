@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from . import log
 from . import control
@@ -8,6 +9,9 @@ from .env import Env
 from . import tesla
 from . import scheduler
 from . import __version__
+from typing import Dict, Union
+from google.cloud import firestore
+from .plugin_exception import PluginException
 
 logger = log.getLogger(__name__)
 
@@ -35,9 +39,32 @@ async def async_main() -> None:
 
     logger.info("Starting")
     try:
-        config_      = config.Config(filename=args.config)
-        state_       = filestate.FileState(filename=config_.get("common", "state_file"))
-        control_name = config_.get("common", "control")
+        secrets: Union[Dict[str, Dict[str, str]], None] = None
+        try:
+            from importlib import metadata # type: ignore
+            if os.getenv("ENVIRONMENT") == "gcp":
+                for ep in metadata.entry_points()['secret_sources']:
+                    if ep.name == 'gcp':
+                        secrets = ep.load()()
+        except ImportError as exn:
+            logger.warn(f"Cannot import metadata: python 3.8 required; skipping gcp support")
+        except PluginException as exn:
+            logger.fatal(f"Configuration error: {exn.args[0]}")
+            raise SystemExit(1)
+            
+        config_      = config.Config(filename=args.config, 
+                                    config_dict=secrets)
+        _db: firestore.CollectionReference = None
+        storage = config_.get("common", "storage")
+        if storage == "firestore":
+            _db = firestore.Client().collection(u"tesla")
+            logger.info("Storage in firestore")
+        else:
+            logger.info("Local storage")
+        state_       = filestate.FileState(
+                            filename=config_.get("common", "state_file", fallback="state.ini"),
+                            _db = _db)
+        control_name = config_.get("common", "control", fallback="slack")
         env          = Env(config=config_,
                            state=state_)
         if control_name == "matrix":

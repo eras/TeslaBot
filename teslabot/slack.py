@@ -47,6 +47,7 @@ class SlackControl(control.Control):
     _state: State
     _channel_name: str
     _channel_id: Optional[str]
+    _admin_channel_id: str
 
     _api_token: str
     _app_token: str
@@ -57,14 +58,20 @@ class SlackControl(control.Control):
         super().__init__()
         self._config = env.config
         self._state = env.state
+
         api_token = os.environ.get("SLACK_API_TOKEN")
         if api_token is None:
-            api_token = self._config.get("slack", "api_token")
+            api_token = self._config.get("slack", "slack_api_secret_id")
         app_token = os.environ.get("SLACK_APP_TOKEN")
         if app_token is None:
-            app_token = self._config.get("slack", "app_token")
+            app_token = self._config.get("slack", "slack_app_secret_id")
+        admin_channel_id = os.environ.get("SLACK_ADMIN_CHANNEL_ID")
+        if admin_channel_id is None:
+            admin_channel_id = self._config.get("slack", "slack_admin_channel_id")
         self._api_token = api_token
         self._app_token = app_token
+        self._admin_channel_id = admin_channel_id
+
         channel_name = self._config.get("slack", "channel", empty_is_none=True)
         if channel_name[0] != "#":
             raise control.ConfigError("Expected channel name to start with #")
@@ -138,11 +145,16 @@ class SlackControl(control.Control):
                                 logger.debug(f"acking with {ack}")
                                 await session.send_json(ack)
                                 logger.debug(f"acked")
+                            # Filter through bot messages and set admin rights
                             text = json_message.get("payload", {}).get("event", {}).get("text", None)
-                            if text is not None:
-                                command_context = CommandContext(admin_room=False,
+                            bot = json_message.get("payload", {}).get("event", {}).get("bot_id", None)
+                            if text is not None and bot is None:
+                                admin_room = json_message.get("payload", {}).get("event", {}).get("channel", None) == self._admin_channel_id
+                                command_context = CommandContext(admin_room=admin_room,
                                                                  control=self)
                                 await self.process_message(command_context, text)
+                            if bot is not None:
+                                logger.debug(f"Not processing bot messages as commands")
                     if got_messages:
                         logger.error(f"Web socket session terminated: sleeping 10 seconds and reconnecting")
                         await asyncio.sleep(10)
@@ -168,8 +180,6 @@ class SlackControl(control.Control):
                 json={"channel": self._channel_id,
                       "text": message}
             ))
-            if response["message"]["text"] != message:
-                raise control.MessageSendError("Sent message different from requested")
         except SlackApiError as exn:
             assert exn.response["ok"] is False
             error = exn.response["error"] # str like 'invalid_auth', 'channel_not_found'

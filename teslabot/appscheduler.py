@@ -74,7 +74,7 @@ def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[Tuple[str, T]]:
     return p.Labeled(label=label, parser=p.Adjacent(p.CaptureFixedStr(label), parser).base())
 
 CommandWithArgs = List[str]
-def valid_schedulable(app_scheduler: "AppScheduler",
+def valid_schedulable(app_scheduler: "AppScheduler[T]",
                       include_every: bool,
                       include_until: bool) -> p.Parser[CommandWithArgs]:
     cmds = app_scheduler.schedulable_commands[:]
@@ -90,13 +90,13 @@ def valid_schedulable(app_scheduler: "AppScheduler",
 
 ScheduleAtArgs = Tuple[datetime.datetime,
                        CommandWithArgs]
-def valid_schedule_at(app_scheduler: "AppScheduler") -> p.Parser[ScheduleAtArgs]:
+def valid_schedule_at(app_scheduler: "AppScheduler[T]") -> p.Parser[ScheduleAtArgs]:
     return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app_scheduler, include_every=True, include_until=True)))
 
 ScheduleEveryArgs = Tuple[Tuple[datetime.timedelta,
                                 Optional[datetime.datetime]],
                           CommandWithArgs]
-def valid_schedule_every(app_scheduler: "AppScheduler", include_until: bool) -> p.Parser[ScheduleEveryArgs]:
+def valid_schedule_every(app_scheduler: "AppScheduler[T]", include_until: bool) -> p.Parser[ScheduleEveryArgs]:
     return p.Remaining(p.Adjacent(p.Adjacent(p.Interval(),
                                              p.Labeled(
                                                  "until",
@@ -108,7 +108,7 @@ def valid_schedule_every(app_scheduler: "AppScheduler", include_until: bool) -> 
 ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
                                 Optional[datetime.timedelta]],
                           CommandWithArgs]
-def valid_schedule_until(app_scheduler: "AppScheduler", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
+def valid_schedule_until(app_scheduler: "AppScheduler[T]", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
     return p.Remaining(p.Adjacent(p.Adjacent(p.Time(),
                                              p.Labeled(
                                                  "every",
@@ -118,10 +118,10 @@ def valid_schedule_until(app_scheduler: "AppScheduler", include_every: bool) -> 
                                   valid_schedulable(app_scheduler, include_until=False, include_every=include_every)))
 
 
-class AppSchedulerState(StateElement):
-    app_scheduler: "AppScheduler"
+class AppSchedulerState(Generic[T], StateElement):
+    app_scheduler: "AppScheduler[T]"
 
-    def __init__(self, app_scheduler: "AppScheduler") -> None:
+    def __init__(self, app_scheduler: "AppScheduler[T]") -> None:
         self.app_scheduler = app_scheduler
 
     async def save(self, state: State) -> None:
@@ -139,7 +139,7 @@ class AppScheduler(Generic[T]):
     _scheduler: scheduler.Scheduler[SchedulerContext]
     _scheduler_id: int
     control: Control
-    _commands: Optional[c.Commands]
+    _commands: Optional[c.Commands[CommandContext]]
 
     def __init__(self,
                  schedulable_commands: List[p.Parser[Tuple[str, T]]],
@@ -152,7 +152,7 @@ class AppScheduler(Generic[T]):
         self.control = control
         self._commands = None
 
-    def register(self, commands: c.Commands):
+    def register(self, commands: c.Commands[CommandContext]) -> None:
         # TODO: flow commands from this function to the callbacks (via context?), so that .invoke works
         assert self._commands is None
         self._commands = commands

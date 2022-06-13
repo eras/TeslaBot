@@ -23,4 +23,9 @@ setup(
         "matrix": lines("requirements-matrix.txt"),
         "slack": lines("requirements-slack.txt"),
     },
+    entry_points={
+        'secret_sources': [
+            'gcp = teslabot.gcp_secret_reader:get_secrets',
+        ],
+    }
 )

@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast
 import re
 import datetime
 from configparser import ConfigParser
@@ -26,6 +26,7 @@ from .locations import Location, Locations, LocationArgs, LocationArgsParser, Lo
 from .asyncthread import to_async
 from . import __version__
 from .appscheduler import AppScheduler
+from google.cloud import firestore
 
 logger = log.getLogger(__name__)
 
@@ -118,6 +119,14 @@ def format_km(km: float) -> str:
     else:
         return f"{km:.2f} km"
 
+def cache_load() -> Dict[str, Any]:
+    cache: Dict[str, Any] = firestore.Client().collection(u'tesla').document(u'cache').get().to_dict()
+    return cache
+
+def cache_dump(cache: Dict[str, Any]) -> None:
+    cache_doc = firestore.Client().collection(u'tesla').document(u'cache')
+    cache_doc.set(cache)
+
 class App(ControlCallback):
     control: Control
     config: Config
@@ -125,20 +134,29 @@ class App(ControlCallback):
     tesla: teslapy.Tesla
     _commands: commands.Commands[CommandContext]
     _set_commands: commands.Commands[CommandContext]
-    _scheduler: AppScheduler
+    _scheduler: AppScheduler[None]
     locations: Locations
     location_detail: LocationDetail
 
-    def __init__(self, control: Control, env: Env) -> None:
+    def __init__(self, 
+                control: Control, 
+                env: Env) -> None:
         self.control = control
         self.config = env.config
         self.state = env.state
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         control.callback = self
+        cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
+        cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
+        if self.config.get("common", "storage") == "cloud":
+            cache_loader = cache_load
+            cache_dumper = cache_dump
         cache_file=self.config.get("tesla", "credentials_store", fallback="cache.json")
         self.tesla = teslapy.Tesla(self.config.get("tesla", "email"),
-                                   cache_file=cache_file)
+                                   cache_file=cache_file,
+                                   cache_dumper=cache_dumper,
+                                   cache_loader=cache_loader)
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,
@@ -155,7 +173,7 @@ class App(ControlCallback):
         self._commands = c.Commands()
         self._scheduler.register(self._commands)
         self._commands.register(c.Function("authorize", "Pass the Tesla API authorization URL",
-                                           p.AnyStr(), self._command_authorized))
+                                           p.ValidOrMissing(p.Url()), self._command_authorized))
         self._commands.register(c.Function("vehicles", "List vehicles",
                                            p.Empty(), self._command_vehicles))
         self._commands.register(c.Function("climate", "climate on|off [vehicle] - control climate",
@@ -177,6 +195,8 @@ class App(ControlCallback):
                                            self._command_location))
         self._commands.register(c.Function("help", "Show help",
                                            p.Empty(), self._command_help))
+        self._commands.register(c.Function("logout", "Log out from current user - authenticate again with !authorize",
+                                           p.Empty(), self._command_logout))
 
         self._set_commands = c.Commands()
         self._set_commands.register(c.Function("location-detail", "full, near, at, nearest",
@@ -191,6 +211,17 @@ class App(ControlCallback):
     async def _command_help(self, command_context: CommandContext, args: Tuple[()]) -> None:
         await self.control.send_message(command_context.to_message_context(),
                                         self._commands.help())
+
+    async def _command_logout(self, context: CommandContext, args: Tuple[()]) -> None:
+        if not self.tesla.authorized:
+            await self.control.send_message(context.to_message_context(), "There is no user authorized! Please use !authorize.")
+        elif not context.admin_room:
+            await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
+        else:
+            def call() -> None:
+                self.tesla.logout()
+            await to_async(call)
+            await self.control.send_message(context.to_message_context(), "Logout successful!")
 
     async def command_callback(self,
                                command_context: CommandContext,
@@ -262,17 +293,23 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         f"Require bang set to {self.control.require_bang}")
 
-    async def _command_authorized(self, context: CommandContext, authorization_response: str) -> None:
-        if not context.admin_room:
+    async def _command_authorized(self, context: CommandContext, authorization_response: Optional[str]) -> None:
+        if self.tesla.authorized:
+            await self.control.send_message(context.to_message_context(), "Already authorized!")
+        elif not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         else:
-            await self.control.send_message(context.to_message_context(), "Authorization successful")
-            # https://github.com/python/mypy/issues/9590
-            def call() -> None:
-                self.tesla.fetch_token(authorization_response=authorization_response)
-            await to_async(call)
-            vehicles = self.tesla.vehicle_list()
-            await self.control.send_message(context.to_message_context(), str(vehicles[0]))
+            if authorization_response is not None:
+                # https://github.com/python/mypy/issues/9590
+                def call() -> None:
+                    self.tesla.fetch_token(authorization_response=authorization_response)
+                await to_async(call)
+                await self.control.send_message(context.to_message_context(), "Authorization successful")
+                vehicles = self.tesla.vehicle_list()
+                await self.control.send_message(context.to_message_context(), str(vehicles[0]))
+            elif not self.tesla.authorized:
+                await self.control.send_message(context.to_message_context(), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+
 
     async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
         vehicles = self.tesla.vehicle_list()
@@ -494,5 +531,6 @@ class App(ControlCallback):
         await self._load_state()
         await self.control.send_message(MessageContext(admin_room=False), f"TeslaBot {__version__} started")
         self.state.add_element(AppState(self))
+
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
