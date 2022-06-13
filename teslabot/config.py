@@ -68,7 +68,8 @@ class Config:
         else:
             currentPath = os.path.dirname(__file__)
             if not self._config.read(os.path.join(currentPath, filename)):
-                raise ConfigFileNotFoundError(f"Cannot open config file {filename}")
+                if not self._config.read(filename):
+                    raise ConfigFileNotFoundError(f"Cannot open config file {filename} from current working directory nor from {currentPath}")
 
     def __getitem__(self, section: str) -> Section:
         return Section(section, self._config[section])
