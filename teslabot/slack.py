@@ -131,6 +131,9 @@ class SlackControl(control.Control):
                         async for message in session:
                             if not got_messages:
                                 logger.info(f"Established websocket connection successfully")
+                            if not message.data: 
+                                logger.error("Message did not contain data")
+                                break
                             got_messages = True
                             json_message = json.loads(message.data)
                             logger.info(f"json_message: {json_message}")
