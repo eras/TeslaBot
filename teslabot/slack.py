@@ -1,4 +1,5 @@
 import os
+import traceback
 from typing import List, Union, Optional, Any, Tuple
 import asyncio
 import aiohttp
@@ -166,8 +167,8 @@ class SlackControl(control.Control):
                         logger.error(f"Web socket session terminated without receiving any data: sleeping {sleep_time()} seconds and reconnecting")
                         await asyncio.sleep(sleep_time())
                         num_retries += 1
-        except Exception as exn:
-            logger.error(f"exception: {exn}")
+        except Exception:
+            logger.error(f"exception: {traceback.format_exc()}")
             raise exn
 
     async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
