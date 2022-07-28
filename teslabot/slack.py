@@ -127,46 +127,52 @@ class SlackControl(control.Control):
                     num_retries += 1
                 else:
                     got_messages = False
-                    async with aiohttp.ClientSession().ws_connect(ws_url) as session:
-                        logger.debug(f"Established websocket connection, waiting first message..")
-                        async for message in session:
-                            if not got_messages:
-                                logger.info(f"Established websocket connection successfully")
-                            if not message.data: 
-                                logger.error("Message did not contain data")
-                                break
-                            got_messages = True
-                            json_message = json.loads(message.data)
-                            logger.info(f"json_message: {json_message}")
-                            try:
-                                envelope_id = json_message.get("envelope_id")
-                            except Exception as exn:
-                                logger.error(f"exception1: {exn}")
-                                raise exn
-                            # ack first, handle later, so we don't end up reprocessing crashing commands..
-                            if envelope_id is not None:
-                                ack = {"envelope_id": envelope_id}
-                                logger.debug(f"acking with {ack}")
-                                await session.send_json(ack)
-                                logger.debug(f"acked")
-                            # Filter through bot messages and set admin rights
-                            text = json_message.get("payload", {}).get("event", {}).get("text", None)
-                            bot = json_message.get("payload", {}).get("event", {}).get("bot_id", None)
-                            if text is not None and bot is None:
-                                admin_room = json_message.get("payload", {}).get("event", {}).get("channel", None) == self._admin_channel_id
-                                command_context = CommandContext(admin_room=admin_room,
-                                                                 control=self)
-                                await self.process_message(command_context, text)
-                            if bot is not None:
-                                logger.debug(f"Not processing bot messages as commands")
-                    if got_messages:
-                        logger.error(f"Web socket session terminated: sleeping 10 seconds and reconnecting")
-                        await asyncio.sleep(10)
-                        num_retries = 0
-                    else:
-                        logger.error(f"Web socket session terminated without receiving any data: sleeping {sleep_time()} seconds and reconnecting")
-                        await asyncio.sleep(sleep_time())
-                        num_retries += 1
+                    try:
+                        async with aiohttp.ClientSession().ws_connect(ws_url) as session:
+                            logger.debug(f"Established websocket connection, waiting first message..")
+                            async for message in session:
+                                if not got_messages:
+                                    logger.info(f"Established websocket connection successfully")
+                                if not message.data: 
+                                    logger.error("Message did not contain data")
+                                    break
+                                got_messages = True
+                                json_message = json.loads(message.data)
+                                logger.info(f"json_message: {json_message}")
+                                try:
+                                    envelope_id = json_message.get("envelope_id")
+                                except Exception as exn:
+                                    logger.error(f"exception1: {exn}")
+                                    raise exn
+                                # ack first, handle later, so we don't end up reprocessing crashing commands..
+                                if envelope_id is not None:
+                                    ack = {"envelope_id": envelope_id}
+                                    logger.debug(f"acking with {ack}")
+                                    await session.send_json(ack)
+                                    logger.debug(f"acked")
+                                # Filter through bot messages and set admin rights
+                                text = json_message.get("payload", {}).get("event", {}).get("text", None)
+                                bot = json_message.get("payload", {}).get("event", {}).get("bot_id", None)
+                                if text is not None and bot is None:
+                                    admin_room = json_message.get("payload", {}).get("event", {}).get("channel", None) == self._admin_channel_id
+                                    command_context = CommandContext(admin_room=admin_room,
+                                                                    control=self)
+                                    await self.process_message(command_context, text)
+                                if bot is not None:
+                                    logger.debug(f"Not processing bot messages as commands")
+                        if got_messages:
+                            logger.error(f"Web socket session terminated: sleeping 10 seconds and reconnecting")
+                            await asyncio.sleep(10)
+                            num_retries = 0
+                        else:
+                            logger.error(f"Web socket session terminated without receiving any data: sleeping {sleep_time()} seconds and reconnecting")
+                            await asyncio.sleep(sleep_time())
+                            num_retries += 1
+                    except aiohttp.WSServerHandshakeError as exn:
+                        if exn.status is 408: 
+                            logger.error(f"Exception: {exn}. Trying to create new ws connection")
+                            continue
+                        raise exn
         except Exception:
             logger.error(f"exception: {traceback.format_exc()}")
             raise exn
