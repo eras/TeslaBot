@@ -616,7 +616,10 @@ class App(ControlCallback):
         else:
             assert result is not None
             if show_success:
-                await self.control.send_message(context.to_message_context(), f"Success! {result}")
+                message = "Success!"
+                if result != True: # this never happens, though?
+                    message += f" {result}"
+                await self.control.send_message(context.to_message_context(), message)
             return result
 
     async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
