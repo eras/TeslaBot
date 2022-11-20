@@ -9,6 +9,7 @@ import json
 from enum import Enum
 import math
 import time
+from abc import ABC, abstractmethod
 
 import teslapy
 from urllib.error import HTTPError
@@ -61,6 +62,64 @@ class LocationDetail(Enum):
     At = "at"           # show only if location is near some predefined location
     Nearest = "nearest" # show distance to the nearest location
 
+class ChargeOp(ABC):
+    @abstractmethod
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        ...
+
+class ChargeOpStart(ChargeOp):
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("START_CHARGE", {})
+
+class ChargeOpStop(ChargeOp):
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("STOP_CHARGE", {})
+
+class ChargeOpPortOpen(ChargeOp):
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("CHARGE_PORT_DOOR_OPEN", {})
+
+class ChargeOpPortClose(ChargeOp):
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("CHARGE_PORT_DOOR_CLOSE", {})
+
+class ChargeOpSetAmps(ChargeOp):
+    amps: int
+
+    def __init__(self, amps: int) -> None:
+        self.amps = amps
+        if amps < 0 or amps > 32:
+            raise ArgException("Amps should be in range 0..32")
+
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("CHARGING_AMPS", {"charging_amps": str(self.amps)})
+
+class ChargeOpSetLimit(ChargeOp):
+    percent: int
+
+    def __init__(self, percent: int) -> None:
+        self.percent = percent
+        if percent < 0 or percent > 100:
+            raise ArgException("Percentage should be in range 0..100")
+
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("CHANGE_CHARGE_LIMIT", {"percent": str(self.percent)})
+
+class ChargeOpSchedulingEnable(ChargeOp):
+    minutes_past_midnight: int
+
+    def __init__(self, minutes_past_midnight: int) -> None:
+        self.minutes_past_midnight = minutes_past_midnight
+        if minutes_past_midnight < 0 or minutes_past_midnight >= 24*60:
+            raise ArgException("Scheduled time does not fall within the day")
+
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("SCHEDULED_CHARGING", {"enable": True, "time": self.minutes_past_midnight})
+
+class ChargeOpSchedulingDisable(ChargeOp):
+    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+        return ("SCHEDULED_CHARGING", {"enable": False, "time": None})
+
 class AppState(StateElement):
     app: "App"
 
@@ -91,6 +150,32 @@ LockUnlockArgs = Tuple[Optional[str], Tuple[()]]
 def valid_lock_unlock(app: "App") -> p.Parser[LockUnlockArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
+
+ChargeArgs = Tuple[Tuple[ChargeOp, Optional[str]], Tuple[()]]
+def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
+    return p.Adjacent(
+        p.Adjacent(
+            p.OneOf[ChargeOp](
+                p.Map(parser=p.CaptureFixedStr("start"),
+                      map=lambda _: ChargeOpStart()),
+                p.Map(parser=p.CaptureFixedStr("stop"),
+                      map=lambda _: ChargeOpStop()),
+                p.Map(parser=p.Seq([p.CaptureFixedStr("port"), p.CaptureFixedStr("open")]),
+                      map=lambda _: ChargeOpPortOpen()),
+                p.Map(parser=p.Seq([p.CaptureFixedStr("port"), p.CaptureFixedStr("close")]),
+                      map=lambda _: ChargeOpPortClose()),
+                p.Map(parser=p.Keyword("amps", p.Int()),
+                      map=ChargeOpSetAmps),
+                p.Map(parser=p.Keyword("limit", p.Int()),
+                      map=ChargeOpSetLimit),
+                p.Map(parser=p.Keyword("schedule", p.CaptureFixedStr("disable")),
+                      map=lambda x: ChargeOpSchedulingDisable()),
+                p.Map(parser=p.Keyword("schedule", p.HhMm()),
+                      map=lambda x: ChargeOpSchedulingEnable(x[0] * 60 + x[1])),
+            ),
+            p.ValidOrMissing(ValidVehicle(app.tesla))),
+        p.Empty()
+    )
 
 ShareArgs = Tuple[Tuple[str, Optional[str]], Tuple[()]]
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
@@ -168,6 +253,7 @@ class App(ControlCallback):
                 cmd_adjacent("info", valid_info(self)).any(),
                 cmd_adjacent("lock", valid_lock_unlock(self)).any(),
                 cmd_adjacent("unlock", valid_lock_unlock(self)).any(),
+                cmd_adjacent("charge", valid_charge(self)).any(),
                 cmd_adjacent("share", valid_share(self)).any(),
             ])
         self._commands = c.Commands()
@@ -188,6 +274,8 @@ class App(ControlCallback):
                                            valid_lock_unlock(self), self._command_lock))
         self._commands.register(c.Function("unlock", "unlock [vehicle] - Unlock vehicle doors",
                                            valid_lock_unlock(self), self._command_unlock))
+        self._commands.register(c.Function("charge", "charge (start|stop|amps nnn|limit nnn|port (open|close)|schedule (hh:mm|disable)) [vehicle] - Manage charging and charging port",
+                                           valid_charge(self), self._command_charge))
         self._commands.register(c.Function("share", "Share an address on an URL with the vehicle",
                                            valid_share(self), self._command_share))
         self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
@@ -409,6 +497,9 @@ class App(ControlCallback):
             battery_range       = data["charge_state"]["battery_range"]
             est_battery_range   = data["charge_state"]["est_battery_range"]
             charge_limit        = data["charge_state"]["charge_limit_soc"]
+            charge_current_request = data["charge_state"]["charge_current_request"]
+            scheduled_charging_mode = data["charge_state"]["scheduled_charging_mode"]
+            scheduled_charging_start_time = data["charge_state"]["scheduled_charging_start_time"]
             charge_rate         = data["charge_state"]["charge_rate"]
             time_to_full_charge = data["charge_state"]["time_to_full_charge"]
             car_version         = data["vehicle_state"]["car_version"]
@@ -429,11 +520,18 @@ class App(ControlCallback):
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
-            message += f"Charge limit: {charge_limit}% ";
+            message += f"Charge limit: {charge_limit}%"
+            message += f" Charge current limit: {charge_current_request}A";
             if charge_rate:
                 message += f" Charge rate: {charge_rate}A";
             if time_to_full_charge > 0 and charge_rate > 0:
                 message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
+            if scheduled_charging_mode == "StartAt":
+                message += \
+                    "\nCharging scheduled to start at " + \
+                    datetime.datetime.fromtimestamp(
+                        scheduled_charging_start_time
+                    ).strftime('%Y-%m-%d %H:%M')
             message += f"\nOdometer: {odometer} {dist_unit}"
             message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
             if valet_mode:
@@ -469,6 +567,14 @@ class App(ControlCallback):
         logger.debug(f"Sending {command}")
         def call(vehicle: teslapy.Vehicle) -> Any:
             return vehicle.command(command)
+        await self._command_on_vehicle(context, vehicle_name, call)
+
+    async def _command_charge(self, context: CommandContext, args: ChargeArgs) -> None:
+        (charge_op, vehicle_name), _ = args
+        command, kwargs = charge_op.get_command()
+        logger.debug(f"Sending {command} {kwargs}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command, **kwargs)
         await self._command_on_vehicle(context, vehicle_name, call)
 
     async def _command_on_vehicle(self,

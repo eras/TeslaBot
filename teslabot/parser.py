@@ -728,6 +728,27 @@ class Interval(Parser[datetime.timedelta]):
             return ParseFail("Too short interval", processed=0)
         return ParseOK(delta, processed=result.processed)
 
+class HhMm(Parser[Tuple[int, int]]):
+    regex: Regex
+
+    def __init__(self) -> None:
+        self.regex = Regex(r"^([0-9]{1,2}):?([0-9]{2})$")
+
+    def parse(self, args: List[str]) -> ParseResult[Tuple[int, int]]:
+        if len(args) == 0:
+            return ParseFail("No argument provided", processed=0)
+        result = self.regex.parse(args)
+        if isinstance(result, ParseFail):
+            return ParseFail("Failed to parse hh:mm", processed=0)
+        assert(isinstance(result, ParseOK))
+        hours = result.value[0]
+        if hours > 23:
+            return ParseFail("Hours cannot be more than 23", processed=0)
+        minutes = result.value[1]
+        if minutes > 59:
+            return ParseFail("Minutes cannot be more than 59", processed=0)
+        return ParseOK((hours, minutes), processed=result.processed)
+
 @dataclass
 class SuffixInfo(Generic[T]):
     value: T
