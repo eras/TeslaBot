@@ -135,23 +135,36 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 
 Note that by default you need to prefix commands with ```!```.
 
-| command                                | description                                                                                           |
-| ---                                    | ---                                                                                                   |
-| help                                   | Show the list of commands supported                                                                   |
-| climate on [name]                      | Sets climate on. Needs vehicle name if you have more than one Tesla.                                  |
-| climate off [name]                     | Sets climate off.                                                                                     |
-| ac on/off [name]                       | Same as !climate.                                                                                     |
-| sauna on/off [name]                    | Sets max defrost on/off.                                                                              |
-| info [name]                            | Show information about the device, such as about location, climate and charging                       |
-| at 06:00 command                       | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future. |
-| at 600 command                         | Same                                                                                                  |
-| at 10m command                         | Schedule at now + 1 minutes                                                                           |
-| at 1h1m command                        | Schedule at now + 1 hour 1 minute                                                                     |
-| at 06:00 every 10m command             | Schedule at 06:00 and re-do every ten minutes                                                         |
-| at 06:00 every 10m until 30m command   | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                          |
-| at 06:00 every 10m until 7:00 command  | Schedule at 06:00 and re-do every ten minutes until 30m                                               |
-| atrm 42                                | Cancels a timer                                                                                       |
-| atq                                    | Lists timers                                                                                          |
-| set location-detail detail             | Defines how precisely the location is displayed. See !help.                                           |
-| set require-! false                    | After this commands no longer need the ! prefix to work.                                              |
-| location add/rm/ls                     | Manage locations. See !help.                                                                          |
+| command                                     | description                                                                                                                                    |
+| ---                                         | ---                                                                                                                                            |
+| help                                        | Show the list of commands supported.                                                                                                           |
+| authorize                                   | Start the authorization flow. Works only in admin room (though you could only have one and same for control and admin).                        |
+| authorize url                               | Last phase of the authorization flow.                                                                                                          |
+| logout                                      | Remove authorization tokens.                                                                                                                   |
+| climate on [name]                           | Sets climate on. Needs vehicle name if you have more than one Tesla.                                                                           |
+| climate off [name]                          | Sets climate off.                                                                                                                              |
+| ac on/off [name]                            | Same as !climate.                                                                                                                              |
+| sauna on/off [name]                         | Sets max defrost on/off.                                                                                                                       |
+| info [name]                                 | Show information about the device, such as about location, climate and charging                                                                |
+| at 06:00 command                            | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future.                                          |
+| at 600 command                              | Same                                                                                                                                           |
+| at 10m command                              | Schedule at now + 10 minutes                                                                                                                   |
+| at 1h1m command                             | Schedule at now + 1 hour 1 minute                                                                                                              |
+| at 06:00 every 10m command                  | Schedule at 06:00 and re-do every ten minutes                                                                                                  |
+| at 06:00 every 10m until 30m command        | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                                                                   |
+| at 06:00 every 10m until 7:00 command       | Schedule at 06:00 and re-do every ten minutes until 30m                                                                                        |
+| atrm 42                                     | Cancels a timer                                                                                                                                |
+| atq                                         | Lists timers                                                                                                                                   |
+| set location-detail detail                  | Defines how precisely the location is displayed. See !help.                                                                                    |
+| set require-! false                         | After this commands no longer need the ! prefix to work.                                                                                       |
+| location add lat,lon [near 200 m] [address] | Add a new named location. These are for the bot only, not related to Tesla navigation. You can replace "lat,lon" with "current [vehicle name]" |
+| location rm location name                   | Remove a named location.                                                                                                                       |
+| location ls                                 | List location.s                                                                                                                                |
+| charge start/stop                           | Start or stop charging.                                                                                                                        |
+| charge port open/close                      | Open or close charging flap.                                                                                                                   |
+| charge amps 10                              | Set charging amperage (per phase).                                                                                                             |
+| charge limit 70                             | Set charging limit in percents.                                                                                                                |
+| charge schedule 04:00                       | Schedule charging to start at given time. This uses Tesla's scheduler, not the one in this bot.                                                |
+| charge schedule disable                     | Disable charging schedule.                                                                                                                     |
+| heater seat n off/low/medium/high           | Adjust seat heaters. Works only if AC is on.                                                                                                   |
+| heater steering off/high                    | Adjust steering wheel heater. Works only if AC is on.                                                                                          |
