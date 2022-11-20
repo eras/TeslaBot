@@ -173,7 +173,7 @@ class SlackControl(control.Control):
                             logger.error(f"Exception: {exn}. Trying to create new ws connection")
                             continue
                         raise exn
-        except Exception:
+        except Exception as exn:
             logger.error(f"exception: {traceback.format_exc()}")
             raise exn
 
