@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast, NewType
 import re
 import datetime
 from configparser import ConfigParser
@@ -44,11 +44,14 @@ class ArgException(AppException):
 class VehicleException(AppException):
     pass
 
-class ValidVehicle(p.Delayed[str]):
+VehicleName = NewType('VehicleName', str)
+
+class ValidVehicle(p.Map[str, VehicleName]):
     tesla: teslapy.Tesla
 
     def __init__(self, tesla: teslapy.Tesla) -> None:
-        super().__init__(self.make_validator)
+        super().__init__(map=lambda x: VehicleName(x),
+                         parser=p.Delayed[str](self.make_validator))
         self.tesla = tesla
 
     def make_validator(self) -> p.Parser[str]:
@@ -136,22 +139,22 @@ class AppState(StateElement):
             state["control"] = {}
         state["control"]["require_bang"] = str(self.app.control.require_bang)
 
-ClimateArgs = Tuple[Tuple[bool, Optional[str]], Tuple[()]]
+ClimateArgs = Tuple[Tuple[bool, Optional[VehicleName]], Tuple[()]]
 def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
     return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app.tesla))),
                       p.Empty())
 
-InfoArgs = Tuple[Optional[str], Tuple[()]]
+InfoArgs = Tuple[Optional[VehicleName], Tuple[()]]
 def valid_info(app: "App") -> p.Parser[InfoArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
 
-LockUnlockArgs = Tuple[Optional[str], Tuple[()]]
+LockUnlockArgs = Tuple[Optional[VehicleName], Tuple[()]]
 def valid_lock_unlock(app: "App") -> p.Parser[LockUnlockArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
                       p.Empty())
 
-ChargeArgs = Tuple[Tuple[ChargeOp, Optional[str]], Tuple[()]]
+ChargeArgs = Tuple[Tuple[ChargeOp, Optional[VehicleName]], Tuple[()]]
 def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
     return p.Adjacent(
         p.Adjacent(
@@ -177,7 +180,7 @@ def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
         p.Empty()
     )
 
-ShareArgs = Tuple[Tuple[str, Optional[str]], Tuple[()]]
+ShareArgs = Tuple[Tuple[str, Optional[VehicleName]], Tuple[()]]
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
     return p.Adjacent(p.Adjacent(p.Concat(),
                                  p.ValidOrMissing(ValidVehicle(app.tesla))),
