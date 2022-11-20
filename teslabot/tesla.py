@@ -180,6 +180,62 @@ def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
         p.Empty()
     )
 
+class HeaterObject(ABC):
+    def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
+        ...
+
+class HeaterSeat(HeaterObject):
+    seat: int
+
+    def __init__(self, seat: int) -> None:
+        self.seat = seat
+        if seat < 1 or seat > 6:
+            raise ArgException("Seat should be in range 1..6")
+
+    def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
+        return ("REMOTE_SEAT_HEATER_REQUEST",
+                {"heater": self.seat - 1,
+                 "level": heater_level.numeric()})
+
+class HeaterSteering(HeaterObject):
+    def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
+        return ("REMOTE_STEERING_WHEEL_HEATER_REQUEST",
+                {"on": heater_level.binary()})
+
+class HeaterLevel(Enum):
+    Off    = "off"
+    Low    = "low"
+    Medium = "medium"
+    High   = "high"
+
+    def numeric(self) -> int:
+        return {HeaterLevel.Off    : 0,
+                HeaterLevel.Low    : 1,
+                HeaterLevel.Medium : 2,
+                HeaterLevel.High   : 3}[self]
+
+    def binary(self) -> int:
+        return {HeaterLevel.Off    : False,
+                HeaterLevel.Low    : True,
+                HeaterLevel.Medium : True,
+                HeaterLevel.High   : True}[self]
+
+HeaterArgs = Tuple[Tuple[Tuple[HeaterObject, HeaterLevel], Optional[VehicleName]], Tuple[()]]
+def valid_heater(app: "App") -> p.Parser[HeaterArgs]:
+    return p.Adjacent(
+        p.Adjacent(
+            p.Adjacent(
+                p.OneOf[HeaterObject](
+                    p.Map(parser=p.Keyword("seat", p.Int()),
+                          map=HeaterSeat),
+                    p.Map(parser=p.CaptureFixedStr("steering"),
+                          map=lambda _: HeaterSteering())),
+                p.OneOfEnumValue(HeaterLevel)
+            ),
+            p.ValidOrMissing(ValidVehicle(app.tesla))
+        ),
+        p.Empty())
+
 ShareArgs = Tuple[Tuple[str, Optional[VehicleName]], Tuple[()]]
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
     return p.Adjacent(p.Adjacent(p.Concat(),
@@ -257,6 +313,7 @@ class App(ControlCallback):
                 cmd_adjacent("lock", valid_lock_unlock(self)).any(),
                 cmd_adjacent("unlock", valid_lock_unlock(self)).any(),
                 cmd_adjacent("charge", valid_charge(self)).any(),
+                cmd_adjacent("heater", valid_heater(self)).any(),
                 cmd_adjacent("share", valid_share(self)).any(),
             ])
         self._commands = c.Commands()
@@ -279,6 +336,8 @@ class App(ControlCallback):
                                            valid_lock_unlock(self), self._command_unlock))
         self._commands.register(c.Function("charge", "charge (start|stop|amps nnn|limit nnn|port (open|close)|schedule (hh:mm|disable)) [vehicle] - Manage charging and charging port",
                                            valid_charge(self), self._command_charge))
+        self._commands.register(c.Function("heater", "heater (seat (1..6)|steering) (off|low|medium|high) [vehicle] - Adjust seat and steering wheel heaters. Steering wheel heater can only be off or high.",
+                                           valid_heater(self), self._command_heater))
         self._commands.register(c.Function("share", "Share an address on an URL with the vehicle",
                                            valid_share(self), self._command_share))
         self._commands.register(c.Function("location", f"location add|rm|ls\n{indent(2, self.locations.help())}",
@@ -518,8 +577,16 @@ class App(ControlCallback):
             display_name        = data["vehicle_state"]["vehicle_name"]
             inside_temp         = data["climate_state"]["inside_temp"]
             outside_temp        = data["climate_state"]["outside_temp"]
+            seat_heater_left    = data["climate_state"]["seat_heater_left"]
+            seat_heater_right   = data["climate_state"]["seat_heater_right"]
+            seat_heater_rear_center = data["climate_state"]["seat_heater_rear_center"]
+            seat_heater_rear_left = data["climate_state"]["seat_heater_rear_left"]
+            seat_heater_rear_right = data["climate_state"]["seat_heater_rear_right"]
             message = f"{display_name} version {car_version}\n"
-            message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit}\n"
+            seat_heaters_str = ', '.join([str(x) for x in [seat_heater_left, seat_heater_right, \
+                                                           seat_heater_rear_left, seat_heater_rear_center, \
+                                                           seat_heater_rear_right]])
+            message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit} Seat heaters: {seat_heaters_str}\n"
             message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
@@ -575,6 +642,14 @@ class App(ControlCallback):
     async def _command_charge(self, context: CommandContext, args: ChargeArgs) -> None:
         (charge_op, vehicle_name), _ = args
         command, kwargs = charge_op.get_command()
+        logger.debug(f"Sending {command} {kwargs}")
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.command(command, **kwargs)
+        await self._command_on_vehicle(context, vehicle_name, call)
+
+    async def _command_heater(self, context: CommandContext, args: HeaterArgs) -> None:
+        ((heater_object, heater_level), vehicle_name), _ = args
+        command, kwargs = heater_object.get_command(heater_level)
         logger.debug(f"Sending {command} {kwargs}")
         def call(vehicle: teslapy.Vehicle) -> Any:
             return vehicle.command(command, **kwargs)
