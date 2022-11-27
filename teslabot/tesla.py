@@ -575,13 +575,14 @@ class App(ControlCallback):
             valet_mode          = data["vehicle_state"]["valet_mode"]
             odometer            = int(data["vehicle_state"]["odometer"])
             display_name        = data["vehicle_state"]["vehicle_name"]
-            inside_temp         = data["climate_state"]["inside_temp"]
-            outside_temp        = data["climate_state"]["outside_temp"]
-            seat_heater_left    = data["climate_state"]["seat_heater_left"]
-            seat_heater_right   = data["climate_state"]["seat_heater_right"]
-            seat_heater_rear_center = data["climate_state"]["seat_heater_rear_center"]
-            seat_heater_rear_left = data["climate_state"]["seat_heater_rear_left"]
-            seat_heater_rear_right = data["climate_state"]["seat_heater_rear_right"]
+            climate_state       = data["climate_state"]
+            inside_temp         = climate_state.get("inside_temp")
+            outside_temp        = climate_state.get("outside_temp")
+            seat_heater_left    = climate_state.get("seat_heater_left")
+            seat_heater_right   = climate_state.get("seat_heater_right")
+            seat_heater_rear_center = climate_state.get("seat_heater_rear_center")
+            seat_heater_rear_left = climate_state.get("seat_heater_rear_left")
+            seat_heater_rear_right = climate_state.get("seat_heater_rear_right")
             message = f"{display_name} version {car_version}\n"
             seat_heaters_str = ', '.join([str(x) for x in [seat_heater_left, seat_heater_right, \
                                                            seat_heater_rear_left, seat_heater_rear_center, \
