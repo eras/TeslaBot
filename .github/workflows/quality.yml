@@ -1,0 +1,67 @@
+name: "Quality Checks"
+
+on:
+  push:
+    branches: [ master, ci ]
+  pull_request:
+    branches: [ master, ci ]
+
+jobs:
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.7"
+          - "3.8"
+          - "3.9"
+          - "3.10"
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true sudo apt-get install -y libssl-dev libolm-dev libffi-dev tzdata gcc
+        python -m pip install --upgrade pip
+        python -m pip install mypy wheel --requirement requirements.txt --requirement requirements-slack.txt --requirement requirements-matrix.txt
+
+    - name: Run mypy
+      run: mypy -p teslabot -p tests
+
+    - name: Run tests
+      run: python -m unittest discover
+
+    - name: Check that there is no lines with trailing whitespace. Use scripts/fix-whitespace.sh to fix if there is.
+      run: "! grep -n ' $' */*.py"
+
+    - name: Flow succeeded notification
+      if: ${{ success() }}
+      uses: s3krit/matrix-message-action@v0.0.3
+      with:
+        room_id: ${{ secrets.MATRIX_ROOM_ID }}
+        access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+        message: "TeslaBot ${{ github.ref_name }} python-version: ${{ matrix.python-version }} Quality check complete. [Logs.](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        server: ${{ secrets.MATRIX_SERVER }}
+
+    - name: Flow failed notification
+      if: ${{ !success() }}
+      uses: s3krit/matrix-message-action@v0.0.3
+      with:
+        room_id: ${{ secrets.MATRIX_ROOM_ID }}
+        access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+        message: "TeslaBot ${{ github.ref_name }} python-version: ${{ matrix.python-version }} Quality check failed. [Logs.](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        server: ${{ secrets.MATRIX_SERVER }}
