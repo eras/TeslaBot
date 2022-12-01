@@ -44,7 +44,7 @@ class FileState(State):
         else:
             self._state_ref = None
             self._state.read(filename)
-        
+
 
     async def save_to_storage(self) -> None:
         if self._state_ref is not None:

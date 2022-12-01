@@ -76,7 +76,7 @@ or None if no such activation is in this schedule"""
         pass
 
     def __str__(self) -> str:
-        return f"Daily at {self.time}" 
+        return f"Daily at {self.time}"
 
 class OneShot(Entry[Context]):
     time: datetime.datetime
@@ -164,7 +164,7 @@ class Scheduler(Generic[Context]):
         self._task.cancel()
         self._task = None
         logger.info(f"Stopped")
-        
+
     def get_earliest(self, now: float, blacklist: Tuple[float, List[Entry[Context]]] = (0.0, [])) -> Optional[Tuple[float, Entry[Context]]]:
         earliest: Optional[Tuple[float, Entry[Context]]] = None
         for entry in self._entries:
@@ -174,7 +174,7 @@ class Scheduler(Generic[Context]):
                     and (when > blacklist[0] or not [x for x in blacklist[1] if x is entry])):
                 earliest = (when, entry)
         return earliest
-            
+
     async def _scheduler(self) -> None:
         try:
             previously_activated: List[Entry[Context]] = []
@@ -263,7 +263,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
     def test_empty(self) -> None:
         sch = Scheduler[None]()
         self.assertTrue(sch.get_earliest(0.0) is None)
-        
+
     async def test_one1(self) -> None:
         sch = Scheduler[None]()
         async def callable() -> None:
@@ -282,21 +282,21 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
 
         self.assertEqual(t0[0], 0.0)
         self.assertTrue(t0[1] is entry)
-        
+
         self.assertEqual(t1[0], 24 * 3600.0)
         self.assertTrue(t1[1] is entry)
-       
+
     async def test_one2(self) -> None:
         sch = Scheduler[None]()
         async def callable() -> None:
             return None
         entry = Daily(callable, datetime.time.fromisoformat("04:00+00:00"), None)
         await sch.add(entry)
-        
+
         t0 = sch.get_earliest(2 * 3600.0)
         t1 = sch.get_earliest(4 * 3600.0)
         t2 = sch.get_earliest(6 * 3600.0)
-        
+
         self.assertIsNotNone(t0)
         assert t0
 
@@ -308,10 +308,10 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
 
         self.assertEqual(t0[0], (4) * 3600.0)
         self.assertTrue(t0[1] is entry)
-        
+
         self.assertEqual(t1[0], (4) * 3600.0)
         self.assertTrue(t1[1] is entry)
-        
+
         self.assertEqual(t2[0], (4 + 24) * 3600.0)
         self.assertTrue(t2[1] is entry)
 
@@ -331,7 +331,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         t4 = sch.get_earliest(3601.0)
         t5 = sch.get_earliest(24 * 3600.0 - 1)
         t6 = sch.get_earliest(24 * 3600.0 + 1)
-        
+
         self.assertIsNotNone(t0)
         assert t0
 
@@ -355,22 +355,22 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
 
         self.assertEqual(t0[0], 0.0)
         self.assertTrue(t0[1] is entry1)
-        
+
         self.assertEqual(t1[0], 1 * 3600.0)
         self.assertTrue(t1[1] is entry2)
-        
+
         self.assertEqual(t2[0], 1 * 3600.0)
         self.assertTrue(t2[1] is entry2)
-        
+
         self.assertEqual(t3[0], 1 * 3600.0)
         self.assertTrue(t3[1] is entry2)
-        
+
         self.assertEqual(t4[0], 24 * 3600.0)
         self.assertTrue(t4[1] is entry1)
-        
+
         self.assertEqual(t5[0], 24 * 3600.0)
         self.assertTrue(t5[1] is entry1)
-        
+
         self.assertEqual(t6[0], (24 + 1) * 3600.0)
         self.assertTrue(t6[1] is entry2)
 
@@ -387,7 +387,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         sch = Scheduler[None]()
         sch.sleep = fake_sleep
         sch.now = fake_now
-        
+
         async def callable() -> None:
             ready_flag[0] = True
             async with executions_cond:
@@ -399,7 +399,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
             #print("run operations")
             await sch.add(Daily(callable, datetime.time.fromisoformat("01:00+00:00"), None))
             #print("done running operations")
-        
+
         loop = asyncio.get_event_loop()
         task = loop.create_task(run_operations())
 
@@ -437,7 +437,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         async def run_operations() -> None:
             await sch.add(Daily(mk_callable("callable1"), datetime.time.fromisoformat("01:00+00:00"), None))
             await sch.add(Daily(mk_callable("callable2"), datetime.time.fromisoformat("02:00+00:00"), None))
-        
+
         loop = asyncio.get_event_loop()
         task = loop.create_task(run_operations())
 
@@ -449,7 +449,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
         def executions_wait() -> bool:
             #print(f"executions_wait")
             return len(executions) >= len(reference_executions)
-        
+
         #print("stopping scheduler")
         async with executions_cond:
             await executions_cond.wait_for(executions_wait)

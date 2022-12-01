@@ -62,7 +62,7 @@ class Config:
         self._config = ConfigParser()
 
         # Try first to read config from plugin
-        
+
         if config_dict is not None:
             self._config.read_dict(config_dict)
         else:

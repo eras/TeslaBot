@@ -283,8 +283,8 @@ class App(ControlCallback):
     locations: Locations
     location_detail: LocationDetail
 
-    def __init__(self, 
-                control: Control, 
+    def __init__(self,
+                control: Control,
                 env: Env) -> None:
         self.control = control
         self.config = env.config

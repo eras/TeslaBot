@@ -51,8 +51,8 @@ async def async_main() -> None:
         except PluginException as exn:
             logger.fatal(f"Configuration error: {exn.args[0]}")
             raise SystemExit(1)
-            
-        config_      = config.Config(filename=args.config, 
+
+        config_      = config.Config(filename=args.config,
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
         storage = config_.get("common", "storage")
