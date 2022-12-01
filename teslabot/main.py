@@ -10,7 +10,7 @@ from . import tesla
 from . import scheduler
 from . import __version__
 from typing import Dict, Union
-from google.cloud import firestore
+from google.cloud import firestore # type: ignore
 from .plugin_exception import PluginException
 
 logger = log.getLogger(__name__)

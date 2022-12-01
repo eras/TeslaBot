@@ -27,7 +27,7 @@ from .locations import Location, Locations, LocationArgs, LocationArgsParser, Lo
 from .asyncthread import to_async
 from . import __version__
 from .appscheduler import AppScheduler
-from google.cloud import firestore
+from google.cloud import firestore # type: ignore
 
 logger = log.getLogger(__name__)
 
