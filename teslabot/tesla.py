@@ -27,7 +27,7 @@ from .locations import Location, Locations, LocationArgs, LocationArgsParser, Lo
 from .asyncthread import to_async
 from . import __version__
 from .appscheduler import AppScheduler
-from google.cloud import firestore
+from google.cloud import firestore # type: ignore
 
 logger = log.getLogger(__name__)
 
@@ -181,6 +181,7 @@ def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
     )
 
 class HeaterObject(ABC):
+    @abstractmethod
     def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
         ...
 
@@ -282,8 +283,8 @@ class App(ControlCallback):
     locations: Locations
     location_detail: LocationDetail
 
-    def __init__(self, 
-                control: Control, 
+    def __init__(self,
+                control: Control,
                 env: Env) -> None:
         self.control = control
         self.config = env.config

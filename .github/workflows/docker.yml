@@ -1,3 +1,5 @@
+name: "Docker images"
+
 # https://www.honlsoft.com/blog/2022-02-01-using-github-actions-to-build-docker-images
 env:
   REGISTRY: ghcr.io

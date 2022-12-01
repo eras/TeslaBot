@@ -2,7 +2,7 @@ import os
 from typing import List, Tuple, Dict, Any
 from configparser import ConfigParser
 from .state import Section, State
-from google.cloud import firestore
+from google.cloud import firestore # type: ignore
 from .utils import parser_to_dict
 
 class FileSection(Section):
@@ -44,7 +44,7 @@ class FileState(State):
         else:
             self._state_ref = None
             self._state.read(filename)
-        
+
 
     async def save_to_storage(self) -> None:
         if self._state_ref is not None:

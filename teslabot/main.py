@@ -10,7 +10,7 @@ from . import tesla
 from . import scheduler
 from . import __version__
 from typing import Dict, Union
-from google.cloud import firestore
+from google.cloud import firestore # type: ignore
 from .plugin_exception import PluginException
 
 logger = log.getLogger(__name__)
@@ -51,8 +51,8 @@ async def async_main() -> None:
         except PluginException as exn:
             logger.fatal(f"Configuration error: {exn.args[0]}")
             raise SystemExit(1)
-            
-        config_      = config.Config(filename=args.config, 
+
+        config_      = config.Config(filename=args.config,
                                     config_dict=secrets)
         _db: firestore.CollectionReference = None
         storage = config_.get("common", "storage")

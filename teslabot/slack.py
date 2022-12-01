@@ -133,7 +133,7 @@ class SlackControl(control.Control):
                             async for message in session:
                                 if not got_messages:
                                     logger.info(f"Established websocket connection successfully")
-                                if not message.data: 
+                                if not message.data:
                                     logger.error("Message did not contain data")
                                     break
                                 got_messages = True
@@ -169,7 +169,7 @@ class SlackControl(control.Control):
                             await asyncio.sleep(sleep_time())
                             num_retries += 1
                     except aiohttp.WSServerHandshakeError as exn:
-                        if exn.status is 408: 
+                        if exn.status is 408:
                             logger.error(f"Exception: {exn}. Trying to create new ws connection")
                             continue
                         raise exn
