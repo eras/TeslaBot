@@ -741,10 +741,10 @@ class HhMm(Parser[Tuple[int, int]]):
         if isinstance(result, ParseFail):
             return ParseFail("Failed to parse hh:mm", processed=0)
         assert(isinstance(result, ParseOK))
-        hours = result.value[0]
+        hours = int(result.value[0])
         if hours > 23:
             return ParseFail("Hours cannot be more than 23", processed=0)
-        minutes = result.value[1]
+        minutes = int(result.value[1])
         if minutes > 59:
             return ParseFail("Minutes cannot be more than 59", processed=0)
         return ParseOK((hours, minutes), processed=result.processed)

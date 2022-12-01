@@ -473,6 +473,41 @@ class TestParser(unittest.TestCase):
             self.assertEqual(p.Interval().parse(["1h1m"]),
                              p.ParseOK(datetime.timedelta(hours=1, minutes=1), processed=1))
 
+    def test_hhmm(self) -> None:
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse([]),
+                             p.ParseFail("No argument provided", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse([""]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["0"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["00"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["00:"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse([":0"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse([":00"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["0:0"]),
+                             p.ParseFail("Failed to parse hh:mm", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["25:00"]),
+                             p.ParseFail("Hours cannot be more than 23", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["0:60"]),
+                             p.ParseFail("Minutes cannot be more than 59", processed=0))
+        with self.subTest():
+            self.assertEqual(p.HhMm().parse(["10:10"]),
+                             p.ParseOK((10, 10), processed=1))
+
     def test_time(self) -> None:
         now = datetime.datetime.fromisoformat("2022-02-22 01:00")
         today = now.date()
