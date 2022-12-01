@@ -181,6 +181,7 @@ def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
     )
 
 class HeaterObject(ABC):
+    @abstractmethod
     def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
         ...
 
