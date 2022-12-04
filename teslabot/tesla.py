@@ -562,7 +562,7 @@ class App(ControlCallback):
             charge_limit        = data["charge_state"]["charge_limit_soc"]
             charge_current_request = data["charge_state"]["charge_current_request"]
             scheduled_charging_mode = data["charge_state"]["scheduled_charging_mode"]
-            scheduled_charging_start_time = data["charge_state"]["scheduled_charging_start_time"]
+            scheduled_charging_start_time : Optional[float] = data["charge_state"]["scheduled_charging_start_time"]
             charge_rate         = data["charge_state"]["charge_rate"]
             time_to_full_charge = data["charge_state"]["time_to_full_charge"]
             car_version         = data["vehicle_state"]["car_version"]
@@ -601,9 +601,10 @@ class App(ControlCallback):
             if scheduled_charging_mode == "StartAt":
                 message += \
                     "\nCharging scheduled to start at " + \
-                    datetime.datetime.fromtimestamp(
-                        scheduled_charging_start_time
-                    ).strftime('%Y-%m-%d %H:%M')
+                    str(map_optional(
+                        scheduled_charging_start_time,
+                        lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M')
+                    ))
             message += f"\nOdometer: {odometer} {dist_unit}"
             message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
             if valet_mode:
