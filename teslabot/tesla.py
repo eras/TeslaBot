@@ -597,8 +597,10 @@ class App(ControlCallback):
             message += f" Charge current limit: {charge_current_request}A";
             if charge_rate or charging_state == "Charging":
                 message += f" Charge rate: {charge_rate}A";
-            if time_to_full_charge > 0 and charge_rate > 0:
-                message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
+                if time_to_full_charge > 0:
+                    message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
+                else:
+                    message += f" Ready at: unknown"
             if scheduled_charging_mode == "StartAt":
                 message += \
                     "\nCharging scheduled to start at " + \
