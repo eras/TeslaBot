@@ -564,6 +564,7 @@ class App(ControlCallback):
             scheduled_charging_mode = data["charge_state"]["scheduled_charging_mode"]
             scheduled_charging_start_time : Optional[float] = data["charge_state"]["scheduled_charging_start_time"]
             charge_rate         = data["charge_state"]["charge_rate"]
+            charging_state      = data["charge_state"]["charging_state"]
             time_to_full_charge = data["charge_state"]["time_to_full_charge"]
             car_version         = data["vehicle_state"]["car_version"]
             front_trunk_open    = data["vehicle_state"]["ft"] != 0
@@ -594,7 +595,7 @@ class App(ControlCallback):
             charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
             message += f"Charge limit: {charge_limit}%"
             message += f" Charge current limit: {charge_current_request}A";
-            if charge_rate:
+            if charge_rate or charging_state == "Charging":
                 message += f" Charge rate: {charge_rate}A";
             if time_to_full_charge > 0 and charge_rate > 0:
                 message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
