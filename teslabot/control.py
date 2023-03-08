@@ -84,6 +84,8 @@ class Control(ABC):
                         await self.local_commands.invoke(command_context, invocation)
                     else:
                         await self.callback.command_callback(command_context, invocation)
+                except commands.InvocationEmptyError as exn:
+                    logger.debug("Ignoring empty message (or completely commented)")
                 except commands.CommandParseError as exn:
                     logger.error(f"{command_context.txn}: Failed to parse command: {message}")
                     def format(word: str, highlight: bool) -> str:

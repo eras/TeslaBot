@@ -3,6 +3,7 @@ import json
 import time
 from typing import List, Tuple, Optional, Any, Callable, Awaitable, TypeVar, Generic
 from dataclasses import dataclass
+import traceback
 
 from . import scheduler
 from . import log
@@ -300,5 +301,10 @@ class AppScheduler(Generic[T]):
         await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
         assert self._commands
         invocation = c.Invocation(name=command[0], args=command[1:])
-        await self._commands.invoke(context, invocation)
+        try:
+            await self._commands.invoke(context, invocation)
+        except Exception as exn:
+            logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
+            await self.control.send_message(context.to_message_context(),
+                                            f"{context.txn} Exception :(")
         await self._command_ls(context, ())
