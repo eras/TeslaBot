@@ -39,6 +39,9 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install mypy wheel --requirement requirements.txt --requirement requirements-slack.txt --requirement requirements-matrix.txt
 
+    - name: Install dependencies for mypy checking
+      run: pip3 install -r requirements-types.txt
+
     - name: Run mypy
       run: mypy -p teslabot -p tests
 

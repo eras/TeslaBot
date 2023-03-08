@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 
 import teslapy
 from urllib.error import HTTPError
+from urllib3.exceptions import ProtocolError
+from requests.exceptions import ConnectionError
 
 from .control import Control, ControlCallback, CommandContext, MessageContext
 from .commands import Invocation
@@ -686,6 +688,12 @@ class App(ControlCallback):
                     break
             except HTTPError as exn:
                 logger.debug(f"HTTP error: {exn}")
+                error = exn
+            except ProtocolError as exn:
+                logger.debug(f"HTTP protocol error: {exn}")
+                error = exn
+            except ConnectionError as exn:
+                logger.debug(f"HTTP connection error: {exn}")
                 error = exn
             finally:
                 logger.debug(f"Done sending")
