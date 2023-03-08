@@ -663,22 +663,13 @@ class App(ControlCallback):
             return vehicle.command(command, **kwargs)
         await self._command_on_vehicle(context, vehicle_name, call)
 
-    async def _command_on_vehicle(self,
-                                  context: CommandContext,
-                                  vehicle_name: Optional[str],
-                                  fn: Callable[[teslapy.Vehicle], T],
-                                  show_success: bool = True) -> Optional[T]:
-        vehicle = await self._get_vehicle(vehicle_name)
-        await self._wake(context, vehicle)
+    async def _retry(self,
+                     fn: Callable[[], Awaitable[T]]) -> Union[T, Exception]:
+        result_or_error: Optional[Union[T, Exception]] = None
         num_retries = 0
-        error = None
-        result: Optional[T] = None
         while num_retries < 5:
             try:
-                # https://github.com/python/mypy/issues/9590
-                def call() -> Any:
-                    return fn(vehicle)
-                result = await to_async(call)
+                result = await fn()
                 error = None
                 break
             except teslapy.VehicleError as exn:
@@ -696,9 +687,29 @@ class App(ControlCallback):
                 logger.debug(f"HTTP connection error: {exn}")
                 error = exn
             finally:
-                logger.debug(f"Done sending")
+                logger.debug(f"Retry round complete")
             await asyncio.sleep(pow(1.15, num_retries) * 2)
             num_retries += 1
+        assert result_or_error is not None
+        return result_or_error
+
+    async def _command_on_vehicle(self,
+                                  context: CommandContext,
+                                  vehicle_name: Optional[str],
+                                  fn: Callable[[teslapy.Vehicle], T],
+                                  show_success: bool = True) -> Optional[T]:
+        vehicle = await self._get_vehicle(vehicle_name)
+        await self._wake(context, vehicle)
+        error = None
+        result: Optional[T] = None
+        # https://github.com/python/mypy/issues/9590
+        def call() -> Any:
+            return fn(vehicle)
+        result_or_error = await self._retry(call)
+        if isinstance(result_or_error, Exception):
+            error = result_or_error
+        else:
+            result = result_or_error
         if error:
             await self.control.send_message(context.to_message_context(), f"Error: {error}")
             return None
