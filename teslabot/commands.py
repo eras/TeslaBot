@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Awaitable
 from .parser import Parser, ParseResult, ParseOK, ParseFail
+from .utils import assert_some
 
 from . import log
 
@@ -20,7 +21,7 @@ class CommandsException(Exception):
 class ParseError(CommandsException):
     pass
 
-class InvocationParseError(ParseError):
+class InvocationEmptyError(ParseError):
     pass
 
 @dataclass
@@ -45,13 +46,14 @@ class Invocation:
 
     @staticmethod
     def parse(message: str) -> "Invocation":
-        fields = [field for field in re.split(r"  *", message) if field != ""]
+        command = assert_some(re.match(r"^[^#]*", message), "This should always match")[0] # extract non-comment part
+        fields = [field for field in re.split(r"  *", command) if field != ""]
         if len(fields):
             logger.debug(f"Command: {fields}")
             return Invocation(name=fields[0],
                               args=fields[1:])
         else:
-            raise InvocationParseError()
+            raise InvocationEmptyError()
 
 class Command(ABC, Generic[Context]):
     name: str

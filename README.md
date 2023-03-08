@@ -136,7 +136,7 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 Note that by default you need to prefix commands with ```!```.
 
 | command                                     | description                                                                                                                                    |
-| ---                                         | ---                                                                                                                                            |
+|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
 | help                                        | Show the list of commands supported.                                                                                                           |
 | authorize                                   | Start the authorization flow. Works only in admin room (though you could only have one and same for control and admin).                        |
 | authorize url                               | Last phase of the authorization flow.                                                                                                          |
@@ -168,3 +168,5 @@ Note that by default you need to prefix commands with ```!```.
 | charge schedule disable                     | Disable charging schedule.                                                                                                                     |
 | heater seat n off/low/medium/high           | Adjust seat heaters. Works only if AC is on.                                                                                                   |
 | heater steering off/high                    | Adjust steering wheel heater. Works only if AC is on.                                                                                          |
+| command # comment                           | Run command; ignore # comment                                                                                                                  |
+| # comment                                   | Ignore message                                                                                                                                 |
