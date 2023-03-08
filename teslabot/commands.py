@@ -45,7 +45,7 @@ class Invocation:
 
     @staticmethod
     def parse(message: str) -> "Invocation":
-        fields = re.split(r"  *", message)
+        fields = [field for field in re.split(r"  *", message) if field != ""]
         if len(fields):
             logger.debug(f"Command: {fields}")
             return Invocation(name=fields[0],
