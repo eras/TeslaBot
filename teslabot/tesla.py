@@ -683,7 +683,7 @@ class App(ControlCallback):
         result_is_set = False
         result: T
         error = None
-        while num_retries < 5:
+        while num_retries < 10:
             try:
                 result = await fn()
                 result_is_set = True
@@ -707,6 +707,8 @@ class App(ControlCallback):
                 logger.debug(f"Retry round complete")
             await asyncio.sleep(pow(1.15, num_retries) * 2)
             num_retries += 1
+        if num_retries > 0:
+            logger.debug(f"Number of retries: {num_retries}")
         if error is not None:
             raise error
         assert result_is_set
