@@ -49,15 +49,16 @@ class VehicleException(AppException):
 VehicleName = NewType('VehicleName', str)
 
 class ValidVehicle(p.Map[str, VehicleName]):
-    tesla: teslapy.Tesla
+    app: "App"
 
-    def __init__(self, tesla: teslapy.Tesla) -> None:
+    def __init__(self, app: "App") -> None:
         super().__init__(map=lambda x: VehicleName(x),
                          parser=p.Delayed[str](self.make_validator))
-        self.tesla = tesla
+        self.app = app
 
     def make_validator(self) -> p.Parser[str]:
-        vehicles = self.tesla.vehicle_list()
+        # TODO: Cannot do async stuff here, so the cached version must do
+        vehicles = self.app.cached_vehicle_list
         display_names = [vehicle["display_name"] for vehicle in vehicles]
         return p.OneOfStrings(display_names)
 
@@ -143,17 +144,17 @@ class AppState(StateElement):
 
 ClimateArgs = Tuple[Tuple[bool, Optional[VehicleName]], Tuple[()]]
 def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
-    return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app.tesla))),
+    return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app))),
                       p.Empty())
 
 InfoArgs = Tuple[Optional[VehicleName], Tuple[()]]
 def valid_info(app: "App") -> p.Parser[InfoArgs]:
-    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
+    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app)),
                       p.Empty())
 
 LockUnlockArgs = Tuple[Optional[VehicleName], Tuple[()]]
 def valid_lock_unlock(app: "App") -> p.Parser[LockUnlockArgs]:
-    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app.tesla)),
+    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app)),
                       p.Empty())
 
 ChargeArgs = Tuple[Tuple[ChargeOp, Optional[VehicleName]], Tuple[()]]
@@ -178,7 +179,7 @@ def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
                 p.Map(parser=p.Keyword("schedule", p.HhMm()),
                       map=lambda x: ChargeOpSchedulingEnable(x[0] * 60 + x[1])),
             ),
-            p.ValidOrMissing(ValidVehicle(app.tesla))),
+            p.ValidOrMissing(ValidVehicle(app))),
         p.Empty()
     )
 
@@ -235,14 +236,14 @@ def valid_heater(app: "App") -> p.Parser[HeaterArgs]:
                           map=lambda _: HeaterSteering())),
                 p.OneOfEnumValue(HeaterLevel)
             ),
-            p.ValidOrMissing(ValidVehicle(app.tesla))
+            p.ValidOrMissing(ValidVehicle(app))
         ),
         p.Empty())
 
 ShareArgs = Tuple[Tuple[str, Optional[VehicleName]], Tuple[()]]
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
     return p.Adjacent(p.Adjacent(p.Concat(),
-                                 p.ValidOrMissing(ValidVehicle(app.tesla))),
+                                 p.ValidOrMissing(ValidVehicle(app))),
                       p.Empty())
 
 def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[Tuple[str, T]]:
@@ -284,6 +285,7 @@ class App(ControlCallback):
     _scheduler: AppScheduler[None]
     locations: Locations
     location_detail: LocationDetail
+    cached_vehicle_list: List[Any]
 
     def __init__(self,
                 control: Control,
@@ -293,6 +295,7 @@ class App(ControlCallback):
         self.state = env.state
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
+        self.cached_vehicle_list = []
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
         cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
@@ -371,9 +374,10 @@ class App(ControlCallback):
         elif not context.admin_room:
             await self.control.send_message(context.to_message_context(), "Please use the admin room for this command.")
         else:
+            # https://github.com/python/mypy/issues/9590
             def call() -> None:
                 self.tesla.logout()
-            await to_async(call)
+            await self._retry_to_async(call)
             await self.control.send_message(context.to_message_context(), "Logout successful!")
 
     async def command_callback(self,
@@ -456,20 +460,27 @@ class App(ControlCallback):
                 # https://github.com/python/mypy/issues/9590
                 def call() -> None:
                     self.tesla.fetch_token(authorization_response=authorization_response)
-                await to_async(call)
+                await self._retry_to_async(call)
                 await self.control.send_message(context.to_message_context(), "Authorization successful")
-                vehicles = self.tesla.vehicle_list()
-                await self.control.send_message(context.to_message_context(), str(vehicles[0]))
             elif not self.tesla.authorized:
                 await self.control.send_message(context.to_message_context(), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
 
+    async def _get_vehicle_list(self) -> List[Any]:
+        def call() -> List[Any]:
+            self.cached_vehicle_list = self.tesla.vehicle_list()
+            return self.cached_vehicle_list
+        result_or_error = await self._retry_to_async(call)
+        if isinstance(result_or_error, Exception):
+            raise result_or_error
+        assert result_or_error is not None
+        return result_or_error
 
     async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
-        vehicles = self.tesla.vehicle_list()
+        vehicles = self._get_vehicle_list()
         await self.control.send_message(context.to_message_context(), f"vehicles: {vehicles}")
 
     async def _get_vehicle(self, display_name: Optional[str]) -> teslapy.Vehicle:
-        vehicles = self.tesla.vehicle_list()
+        vehicles = await self._get_vehicle_list()
         if display_name is not None:
             vehicles = [vehicle for vehicle in vehicles if vehicle["display_name"].lower() == display_name.lower()]
         if len(vehicles) > 1:
@@ -549,6 +560,9 @@ class App(ControlCallback):
             data = await self._command_on_vehicle(context, vehicle_name, call, show_success=False)
             if not data:
                 return
+            # refresh cache for parsers etc
+            await self._get_vehicle_list()
+
             logger.debug(f"data: {data}")
             dist_hr_unit        = data["gui_settings"]["gui_distance_units"]
             dist_unit           = assert_some(re.match(r"^[^/]*", dist_hr_unit), "Expected to find / from dist_hr_unit")[0]
@@ -664,12 +678,15 @@ class App(ControlCallback):
         await self._command_on_vehicle(context, vehicle_name, call)
 
     async def _retry(self,
-                     fn: Callable[[], Awaitable[T]]) -> Union[T, Exception]:
-        result_or_error: Optional[Union[T, Exception]] = None
+                     fn: Callable[[], Awaitable[T]]) -> T:
         num_retries = 0
+        result_is_set = False
+        result: T
+        error = None
         while num_retries < 5:
             try:
                 result = await fn()
+                result_is_set = True
                 error = None
                 break
             except teslapy.VehicleError as exn:
@@ -690,37 +707,45 @@ class App(ControlCallback):
                 logger.debug(f"Retry round complete")
             await asyncio.sleep(pow(1.15, num_retries) * 2)
             num_retries += 1
-        assert result_or_error is not None
-        return result_or_error
+        if error is not None:
+            raise error
+        assert result_is_set
+        return result
+
+    async def _retry_to_async(self, fn: Callable[[], T]) -> T:
+        async def call() -> T:
+            def call2() -> T:
+                return fn()
+            return await to_async(call2)
+        return await self._retry(call)
 
     async def _command_on_vehicle(self,
                                   context: CommandContext,
                                   vehicle_name: Optional[str],
                                   fn: Callable[[teslapy.Vehicle], T],
                                   show_success: bool = True) -> Optional[T]:
-        vehicle = await self._get_vehicle(vehicle_name)
-        await self._wake(context, vehicle)
-        error = None
         result: Optional[T] = None
-        # https://github.com/python/mypy/issues/9590
-        def call() -> Any:
-            return fn(vehicle)
-        result_or_error = await self._retry(call)
-        if isinstance(result_or_error, Exception):
-            error = result_or_error
-        else:
-            result = result_or_error
-        if error:
-            await self.control.send_message(context.to_message_context(), f"Error: {error}")
+        try:
+            vehicle = await self._get_vehicle(vehicle_name)
+            await self._retry(lambda: self._wake(context, vehicle))
+            # https://github.com/python/mypy/issues/9590
+            def call() -> T:
+                return fn(vehicle)
+            result = await self._retry_to_async(call)
+        except Exception as exn:
+            if isinstance(exn, teslapy.VehicleError):
+                await self.control.send_message(context.to_message_context(), f"Error: {exn}")
+            else:
+                logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
+                await self.control.send_message(context.to_message_context(),
+                                                f"{context.txn} Exception :(")
             return None
-        else:
-            assert result is not None
-            if show_success:
-                message = "Success!"
-                if result != True: # this never happens, though?
-                    message += f" {result}"
-                await self.control.send_message(context.to_message_context(), message)
-            return result
+        if show_success:
+            message = "Success!"
+            if result != True: # this never happens, though?
+                message += f" {result}"
+            await self.control.send_message(context.to_message_context(), message)
+        return result
 
     async def _command_climate(self, context: CommandContext, args: ClimateArgs) -> None:
         (mode, vehicle_name), _ = args
@@ -746,3 +771,6 @@ class App(ControlCallback):
 
         if not self.tesla.authorized:
             await self.control.send_message(MessageContext(admin_room=True), f"Not authorized. Authorization URL: {self.tesla.authorization_url()} \"Page Not Found\" will be shown at success. Use !authorize https://the/url/you/ended/up/at")
+        else:
+            # ensure the vehicle list is cached at least once
+            await self._get_vehicle_list()
