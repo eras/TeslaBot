@@ -169,7 +169,7 @@ class SlackControl(control.Control):
                             await asyncio.sleep(sleep_time())
                             num_retries += 1
                     except aiohttp.WSServerHandshakeError as exn:
-                        if exn.status is 408:
+                        if exn.status == 408:
                             logger.error(f"Exception: {exn}. Trying to create new ws connection")
                             continue
                         raise exn
