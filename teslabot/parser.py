@@ -182,8 +182,8 @@ class Keyword(Parser[T]):
 class Regex(Parser[Tuple[Optional[str], ...]]):
     regex: "re.Pattern[str]"
 
-    def __init__(self, regex: str) -> None:
-        self.regex = re.compile(regex)
+    def __init__(self, regex: str, flags: int = 0) -> None:
+        self.regex = re.compile(regex, flags=flags)
 
     def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[str], ...]]:
         if len(args) == 0:
@@ -592,6 +592,26 @@ class OneOfStrings(Parser[str]):
             valid_values = ", ".join(self.strings)
             return ParseFail(f"Expected one of {valid_values}", processed=0)
 
+class OneOfStringsIndex(Parser[int]):
+    strings: List[str]
+
+    def __init__(self, strings: List[str]) -> None:
+        self.strings = strings
+
+    def parse(self, args: List[str]) -> ParseResult[int]:
+        if len(args) == 0:
+            return ParseFail("No argument provided", processed=0)
+        index: Optional[int] = None
+        try:
+            index = [str.lower() for str in self.strings].index(args[0].lower())
+        except ValueError:
+            pass
+        if index is not None:
+            return ParseOK(index, processed=1)
+        else:
+            valid_values = ", ".join(self.strings)
+            return ParseFail(f"Expected one of {valid_values}", processed=0)
+
 TEnum = TypeVar('TEnum', bound=Enum)
 
 class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
@@ -841,14 +861,20 @@ class Meters(Parser[float]):
 @dataclass
 class _DateWrapped:
     yyyymmdd: Optional[Tuple[Optional[str], ...]] = None
+    today_tomorrow: Optional[Tuple[Optional[str], ...]] = None
 
 class Date(Parser[datetime.date]):
     regex: Parser[_DateWrapped]
     today: Optional[datetime.date] # future use to support relative dates
 
     def __init__(self, today: Optional[datetime.date] = None) -> None:
-        self.regex = Map(map=lambda x: _DateWrapped(yyyymmdd=x),
-                         parser=Regex(r"^([0-9]{4})-(0*[0-9]{1,2})-(0*[0-9]{1,2})$"))
+        self.regex = \
+            OneOf(
+                Map(map=lambda x: _DateWrapped(yyyymmdd=x),
+                    parser=Regex(r"^([0-9]{4})-(0*[0-9]{1,2})-(0*[0-9]{1,2})$")),
+                Map(map=lambda x: _DateWrapped(today_tomorrow=x),
+                    parser=Regex(r"^(today|tomorrow)$")),
+            )
         self.today = today
 
     def parse(self, args: List[str]) -> ParseResult[datetime.date]:
@@ -859,14 +885,22 @@ class Date(Parser[datetime.date]):
             return ParseFail("Failed to parse date", processed=0)
         else:
             assert isinstance(result, ParseOK)
-            yyyymmdd: Tuple[Union[str, None], ...] = assert_some(result.value.yyyymmdd)
-            try:
-                return ParseOK(datetime.date(year=int(assert_some(yyyymmdd[0])),
-                                             month=int(assert_some(yyyymmdd[1])),
-                                             day=int(assert_some(yyyymmdd[2]))),
-                               processed=result.processed)
-            except ValueError as exc:
-                return ParseFail(exc.args[0], processed=0)
+            today = self.today if self.today else datetime.date.today()
+            if result.value.yyyymmdd is not None:
+                yyyymmdd: Tuple[Union[str, None], ...] = assert_some(result.value.yyyymmdd)
+                try:
+                    return ParseOK(datetime.date(year=int(assert_some(yyyymmdd[0])),
+                                                 month=int(assert_some(yyyymmdd[1])),
+                                                 day=int(assert_some(yyyymmdd[2]))),
+                                   processed=result.processed)
+                except ValueError as exc:
+                    return ParseFail(exc.args[0], processed=0)
+            elif result.value.today_tomorrow == ("today",):
+                return ParseOK(today, processed=result.processed)
+            elif result.value.today_tomorrow == ("tomorrow",):
+                return ParseOK(today + datetime.timedelta(days=1), processed=result.processed)
+            else:
+                assert False
 
 @dataclass
 class _TimeWrapped:
@@ -933,21 +967,67 @@ class Time(Parser[datetime.datetime]):
                 assert False
             return ParseOK(time, processed=result.processed)
 
-class DateTime(Parser[datetime.datetime]):
-    today: Optional[datetime.date]
-    parser: Adjacent[datetime.date, Tuple[int, int]]
+class Weekday(Parser[int]):
+    """Parses a weekday; Monday is 0, Sunday is 6, like in datetime.date.weekday"""
 
-    def __init__(self, today: Optional[datetime.date] = None) -> None:
-        self.today = today
-        self.parser = Adjacent(Date(today=self.today), HhMm())
+    parser: Parser[int]
+    weekdays_short = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    weekdays_long = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+    def __init__(self) -> None:
+        all_weekdays = Weekday.weekdays_short.copy()
+        all_weekdays += Weekday.weekdays_long
+        self.parser = OneOfStringsIndex(strings=all_weekdays)
+
+    def parse(self, args: List[str]) -> ParseResult[int]:
+        result = self.parser(args)
+        if isinstance(result, ParseOK):
+            return ParseOK(result.value % 7, processed=result.processed)
+        else:
+            assert isinstance(result, ParseFail)
+            return result.forward(processed=0)
+
+@dataclass
+class _DateWeekdayWrapped:
+    date: Optional[datetime.date] = None
+    weekday: Optional[int] = None
+
+class DateTime(Parser[datetime.datetime]):
+    now: Optional[datetime.datetime]
+    parser: Adjacent[_DateWeekdayWrapped, Tuple[int, int]]
+
+    def __init__(self, now: Optional[datetime.datetime] = None) -> None:
+        self.now = now
+        today = map_optional(now, lambda x: x.date())
+        self.parser = \
+            Adjacent(
+                OneOf(
+                    Map(lambda x: _DateWeekdayWrapped(date=x), Date(today=today)),
+                    Map(lambda x: _DateWeekdayWrapped(weekday=x), Weekday()),
+                ),
+                HhMm())
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
-            now = datetime.datetime.combine(result.value[0],
-                                            datetime.time(hour=result.value[1][0],
-                                                          minute=result.value[1][1]))
-            return ParseOK(now, processed=result.processed)
+            now = self.now if self.now is not None else datetime.datetime.now()
+            today = now.date()
+            time = datetime.time(hour=result.value[1][0], minute=result.value[1][1])
+            if result.value[0].date is not None:
+                result_time = datetime.datetime.combine(result.value[0].date,
+                                                        time)
+            elif result.value[0].weekday is not None:
+                # Advanced current
+                while today.weekday() != result.value[0].weekday:
+                    today += datetime.timedelta(days=1)
+                result_time = datetime.datetime.combine(today, time)
+            else:
+                assert False, "One of the fields should have been filled and checked"
+            if result_time < now:
+                return ParseFail(message="Cannot parse times in the past",
+                                 processed=0)
+            else:
+                return ParseOK(result_time, processed=result.processed)
         else:
             assert isinstance(result, ParseFail)
             return ParseFail(message=result.message,
@@ -957,8 +1037,7 @@ class TimeOrDateTime(Parser[datetime.datetime]):
     parser: Parser[datetime.datetime]
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
-        today = map_optional(now, lambda x: x.date())
-        self.parser = OneOf(Labeled("datetime", DateTime(today=today)),
+        self.parser = OneOf(Labeled("datetime", DateTime(now=now)),
                             Labeled("time", Time(now=now)))
 
     def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
