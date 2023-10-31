@@ -208,7 +208,6 @@ class AppScheduler(Generic[T]):
     async def _command_rm(self, context: CommandContext,
                           id: int) -> None:
         def matches(entry: scheduler.Entry[SchedulerContext]) -> bool:
-            logger.debug(f"Comparing {entry.context.info.id} vs {id}")
             return entry.context.info.id == id
         async def remove_entry(entries: List[scheduler.Entry[SchedulerContext]]) -> Tuple[List[scheduler.Entry[SchedulerContext]], bool]:
             new_entries = [entry for entry in entries if not matches(entry)]
