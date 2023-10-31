@@ -158,7 +158,7 @@ class AppScheduler(Generic[T]):
         assert self._commands is None
         self._commands = commands
 
-        commands.register(c.Function("at", "Schedule operation: at 06:00 climate on or at 1h30m every 10m info",
+        commands.register(c.Function("at", "Schedule operation: at [2022-02-22|tomorrow|wed] 06:00 climate on or at 1h30m every 10m info",
                                      valid_schedule_at(self), self._command_at))
         commands.register(c.Function("every", "Schedule operation: every 10m info",
                                      valid_schedule_every(self, include_until=True), self._command_every))
