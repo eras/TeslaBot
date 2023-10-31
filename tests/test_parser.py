@@ -508,6 +508,66 @@ class TestParser(unittest.TestCase):
             self.assertEqual(p.HhMm().parse(["10:10"]),
                              p.ParseOK((10, 10), processed=1))
 
+    def test_date(self) -> None:
+        now = datetime.datetime.fromisoformat("2022-02-22 01:00")
+        today = now.date()
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse([]),
+                             p.ParseFail("No argument provided", processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022-03-03"]),
+                             p.ParseOK(datetime.date(year=2022,
+                                                     month=3,
+                                                     day=3),
+                                       processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022-3-0003"]),
+                             p.ParseOK(datetime.date(year=2022,
+                                                     month=3,
+                                                     day=3),
+                                       processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022-3-99"]),
+                             p.ParseFail("day is out of range for month",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022-99-3"]),
+                             p.ParseFail("month must be in 1..12",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["0000-9-3"]),
+                             p.ParseFail("year 0 is out of range",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022-03-"]),
+                             p.ParseFail("Failed to parse date",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["-03-03"]),
+                             p.ParseFail("Failed to parse date",
+                                         processed=0))
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse(["2022"]),
+                             p.ParseFail("Failed to parse date",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse([""]),
+                             p.ParseFail("Failed to parse date",
+                                         processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.Date(today=today).parse([" "]),
+                             p.ParseFail("Failed to parse date",
+                                         processed=0))
+
     def test_time(self) -> None:
         now = datetime.datetime.fromisoformat("2022-02-22 01:00")
         today = now.date()
@@ -590,6 +650,93 @@ class TestParser(unittest.TestCase):
                              p.ParseOK(datetime.datetime.combine(today,
                                                                  datetime.time(11, 10)),
                                        processed=3))
+
+    def test_datetime(self) -> None:
+        now = datetime.datetime.fromisoformat("2022-02-22 01:00")
+        today = now.date()
+        with self.subTest():
+            self.assertEqual(p.DateTime(today=today).parse([]),
+                             p.ParseFail("No adjacent arguments parsed completely", processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.DateTime(today=today).parse(["2022-03-03"]),
+                             p.ParseFail("No argument provided while parsing right argument", processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.DateTime(today=today).parse(["2022-03-03", "01:00"]),
+                             p.ParseOK(datetime.datetime(year=2022,
+                                                         month=3,
+                                                         day=3,
+                                                         hour=1,
+                                                         minute=00),
+                                       processed=2))
+
+    def test_time_or_datetime(self) -> None:
+        now = datetime.datetime.fromisoformat("2022-02-22 01:00")
+        today = now.date()
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse([]),
+                             p.ParseFail("No argument provided", processed=0))
+
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["2022-03-03"]),
+                             p.ParseFail("No argument provided while parsing right argument", processed=1))
+
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["2022-03-03", "01:00"]),
+                             p.ParseOK(datetime.datetime(year=2022,
+                                                         month=3,
+                                                         day=3,
+                                                         hour=1,
+                                                         minute=00),
+                                       processed=2))
+
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["00:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(0, 0)) +
+                                       datetime.timedelta(days=1),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["01:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["02:00"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(2, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["0m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["10m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 10)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["60m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(2, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["0h"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(1, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["12h"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(13, 0)),
+                                       processed=1))
+        with self.subTest():
+            self.assertEqual(p.TimeOrDateTime(now=now).parse(["12h12m"]),
+                             p.ParseOK(datetime.datetime.combine(today,
+                                                                 datetime.time(13, 12)),
+                                       processed=1))
 
     def test_rest_as_list(self) -> None:
         with self.subTest():

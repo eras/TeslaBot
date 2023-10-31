@@ -92,7 +92,7 @@ def valid_schedulable(app_scheduler: "AppScheduler[T]",
 ScheduleAtArgs = Tuple[datetime.datetime,
                        CommandWithArgs]
 def valid_schedule_at(app_scheduler: "AppScheduler[T]") -> p.Parser[ScheduleAtArgs]:
-    return p.Remaining(p.Adjacent(p.Time(), valid_schedulable(app_scheduler, include_every=True, include_until=True)))
+    return p.Remaining(p.Adjacent(p.TimeOrDateTime(), valid_schedulable(app_scheduler, include_every=True, include_until=True)))
 
 ScheduleEveryArgs = Tuple[Tuple[datetime.timedelta,
                                 Optional[datetime.datetime]],
@@ -103,14 +103,14 @@ def valid_schedule_every(app_scheduler: "AppScheduler[T]", include_until: bool) 
                                                  "until",
                                                  p.Optional_(
                                                      p.Conditional(lambda: include_until,
-                                                                   p.Keyword("until", p.Time()))))),
+                                                                   p.Keyword("until", p.TimeOrDateTime()))))),
                                   valid_schedulable(app_scheduler, include_every=False, include_until=include_until)))
 
 ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
                                 Optional[datetime.timedelta]],
                           CommandWithArgs]
 def valid_schedule_until(app_scheduler: "AppScheduler[T]", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
-    return p.Remaining(p.Adjacent(p.Adjacent(p.Time(),
+    return p.Remaining(p.Adjacent(p.Adjacent(p.TimeOrDateTime(),
                                              p.Labeled(
                                                  "every",
                                                  p.Optional_(
