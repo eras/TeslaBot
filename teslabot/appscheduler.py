@@ -164,8 +164,8 @@ class AppScheduler(Generic[T]):
                                      valid_schedule_every(self, include_until=True), self._command_every))
         commands.register(c.Function("until", "Schedule operation: until 10:00 info",
                                      valid_schedule_until(self, include_every=True), self._command_until))
-        commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier",
-                                     p.Remaining(p.Int()), self._command_rm))
+        commands.register(c.Function("atrm", "Remove a scheduled operation or a running task by its identifier, you can list multiple",
+                                     p.Remaining(p.List_(p.Int())), self._command_rm))
         commands.register(c.Function("atq", "List scheduled operations or running tasks",
                                      p.Empty(), self._command_ls))
 
@@ -206,9 +206,9 @@ class AppScheduler(Generic[T]):
             await self.control.send_message(context.to_message_context(), f"No timers set.")
 
     async def _command_rm(self, context: CommandContext,
-                          id: int) -> None:
+                          ids: List[int]) -> None:
         def matches(entry: scheduler.Entry[SchedulerContext]) -> bool:
-            return entry.context.info.id == id
+            return ids.count(entry.context.info.id) > 0
         async def remove_entry(entries: List[scheduler.Entry[SchedulerContext]]) -> Tuple[List[scheduler.Entry[SchedulerContext]], bool]:
             new_entries = [entry for entry in entries if not matches(entry)]
             logger.debug(f"remove_entry: {entries} -> {new_entries}")

@@ -154,6 +154,7 @@ Note that by default you need to prefix commands with ```!```.
 | at 06:00 every 10m until 30m command        | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                                                                   |
 | at 06:00 every 10m until 7:00 command       | Schedule at 06:00 and re-do every ten minutes until 30m                                                                                        |
 | atrm 42                                     | Cancels a timer                                                                                                                                |
+| atrm 42 44                                  | Cancels two timers                                                                                                                             |
 | atq                                         | Lists timers                                                                                                                                   |
 | set location-detail detail                  | Defines how precisely the location is displayed. See !help.                                                                                    |
 | set require-! false                         | After this commands no longer need the ! prefix to work.                                                                                       |
