@@ -150,9 +150,12 @@ Note that by default you need to prefix commands with ```!```.
 | at 600 command                              | Same                                                                                                                                           |
 | at 10m command                              | Schedule at now + 10 minutes                                                                                                                   |
 | at 1h1m command                             | Schedule at now + 1 hour 1 minute                                                                                                              |
+| at tomorrow 02:00 command                   | Schedule at 02:00 tomorrow                                                                                                                     |
+| at wednesday 02:00 command                  | Schedule at 02:00 this or next wednesday (not in the past)                                                                                     |
 | at 06:00 every 10m command                  | Schedule at 06:00 and re-do every ten minutes                                                                                                  |
 | at 06:00 every 10m until 30m command        | Schedule at 06:00 and re-do every ten minutes for 30 minutes                                                                                   |
 | at 06:00 every 10m until 7:00 command       | Schedule at 06:00 and re-do every ten minutes until 30m                                                                                        |
+| at 06:00 every 10m until wed 7:00 command   | Schedule at 06:00 and re-do every ten minutes until 30m on wednesday                                                                           |
 | atrm 42                                     | Cancels a timer                                                                                                                                |
 | atrm 42 44                                  | Cancels two timers                                                                                                                             |
 | atq                                         | Lists timers                                                                                                                                   |
