@@ -641,9 +641,9 @@ class App(ControlCallback):
             if front_passanger_window:
                 message += f"\nFront passanger window open"
             if rear_driver_window:
-                message += f"\nRear driver window open"
+                message += f"\nRear driver side window open"
             if rear_passanger_window:
-                message += f"\nRear passanger window open"
+                message += f"\nRear passanger side window open"
             await self.control.send_message(context.to_message_context(),
                                             message)
         except HTTPError as exn:
