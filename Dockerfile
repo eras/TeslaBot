@@ -20,6 +20,6 @@ RUN apt-get update && \
   rm -rf /var/lib/dpkg /var/lib/apt /var/cache/apt /usr/share/doc /build
 COPY --from=builder /usr/local/lib/ /usr/local/lib/
 WORKDIR /data
-RUN echo; python3 -m teslabot --version; echo
+RUN echo; python3 -m teslabot --version && echo
 
 CMD ["python3", "-m", "teslabot", "--config", "/data/config.ini"]
