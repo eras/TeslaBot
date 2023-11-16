@@ -147,9 +147,10 @@ def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
     return p.Adjacent(p.Adjacent(p.Bool(), p.ValidOrMissing(ValidVehicle(app))),
                       p.Empty())
 
-InfoArgs = Tuple[Optional[VehicleName], Tuple[()]]
+InfoArgs = Tuple[Tuple[Optional[str], Optional[VehicleName]], Tuple[()]]
 def valid_info(app: "App") -> p.Parser[InfoArgs]:
-    return p.Adjacent(p.ValidOrMissing(ValidVehicle(app)),
+    return p.Adjacent(p.Adjacent(p.ValidOrMissing(p.CaptureFixedStr("delta")),
+                                 p.ValidOrMissing(ValidVehicle(app))),
                       p.Empty())
 
 LockUnlockArgs = Tuple[Optional[VehicleName], Tuple[()]]
@@ -286,6 +287,7 @@ class App(ControlCallback):
     locations: Locations
     location_detail: LocationDetail
     cached_vehicle_list: List[Any]
+    _prev_info: Dict[str, str]
 
     def __init__(self,
                 control: Control,
@@ -296,6 +298,7 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         self.cached_vehicle_list = []
+        self._prev_info = {}
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
         cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
@@ -334,7 +337,7 @@ class App(ControlCallback):
                                            valid_on_off_vehicle(self), self._command_climate))
         self._commands.register(c.Function("sauna", "sauna on|off [vehicle] - max defrost on/off",
                                            valid_on_off_vehicle(self), self._command_sauna))
-        self._commands.register(c.Function("info", "info [vehicle] - Show vehicle location, temperature, etc",
+        self._commands.register(c.Function("info", "info [delta] [vehicle] - Show vehicle location, temperature, etc, or only difference (delta) to previous output",
                                            valid_info(self), self._command_info))
         self._commands.register(c.Function("lock", "lock [vehicle] - Lock vehicle doors",
                                            valid_lock_unlock(self), self._command_lock))
@@ -553,7 +556,8 @@ class App(ControlCallback):
 
 
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
-        vehicle_name, _ = args
+        (delta_kwd, vehicle_name), _ = args
+        delta_mode = delta_kwd == "delta"
         try:
             def call(vehicle: teslapy.Vehicle) -> Any:
                 return vehicle.get_vehicle_data()
@@ -603,49 +607,75 @@ class App(ControlCallback):
             seat_heater_rear_center = climate_state.get("seat_heater_rear_center")
             seat_heater_rear_left = climate_state.get("seat_heater_rear_left")
             seat_heater_rear_right = climate_state.get("seat_heater_rear_right")
-            message = f"{display_name} version {car_version}\n"
+
+            message = ""
+            last_topic = ""
+            buffer = ""
+            def track(topic: str, contents: str) -> None:
+                """Once topic changes, check if its contents changed since the previous round
+
+                Always keeps track, but filters unchanged fields only if in delta mode."""
+                nonlocal buffer
+                nonlocal message
+                nonlocal last_topic
+
+                if topic != last_topic:
+                    if self._prev_info.get(last_topic, "") != buffer:
+                        message += buffer
+                        self._prev_info[last_topic] = buffer
+                    elif not delta_mode:
+                        message += buffer
+                    buffer = ""
+                    last_topic = topic
+                buffer += contents
+
+            track("version", f"{display_name} version {car_version}\n")
             seat_heaters_str = ', '.join([str(x) for x in [seat_heater_left, seat_heater_right, \
                                                            seat_heater_rear_left, seat_heater_rear_center, \
                                                            seat_heater_rear_right]])
-            message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit} Seat heaters: {seat_heaters_str}\n"
-            message += f"Heading: {heading}\n"
-            message += "Location: " + (self.format_location(Location(lat=lat, lon=lon)) if has_lat_lon else "unknown") + "\n"
-            message += f"Speed: {speed}\n"
-            message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
+            track("temperature", f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit} Seat heaters: {seat_heaters_str}\n")
+            track("location", f"Heading: {heading}\n")
+            track("location", "Location: " + (self.format_location(Location(lat=lat, lon=lon)) if has_lat_lon else "unknown") + "\n")
+            track("location", f"Speed: {speed}\n")
+            track("battery", f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n")
             charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
-            message += f"Charge limit: {charge_limit}%"
-            message += f" Charge current limit: {charge_current_request}A";
+            track("battery", f"Charge limit: {charge_limit}%")
+            track("battery", f" Charge current limit: {charge_current_request}A")
             if charge_rate or charging_state == "Charging":
-                message += f" Charge rate: {charge_rate}A";
+                track("battery", f" Charge rate: {charge_rate}A");
                 if time_to_full_charge > 0:
-                    message += f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})"
+                    track("battery", f" Ready at: {format_time(charge_eta)} (+{format_hours(time_to_full_charge)})")
                 else:
-                    message += f" Ready at: unknown"
+                    track("battery", f" Ready at: unknown")
             if scheduled_charging_mode == "StartAt":
-                message += \
+                track("battery",
                     "\nCharging scheduled to start at " + \
                     str(map_optional(
                         scheduled_charging_start_time,
                         lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M')
                     ))
-            message += f"\nOdometer: {odometer} {dist_unit}"
-            message += f"\nVehicle is {'locked' if locked else 'unlocked'}"
+                )
+            track("odometer", f"\nOdometer: {odometer} {dist_unit}\n")
+            track("lock", f"Vehicle is {'locked' if locked else 'unlocked'}\n")
             if valet_mode:
-                message += f"\nValet mode enabled"
+                track("windows", f"Valet mode enabled\n")
             if front_trunk_open:
-                message += f"\nFrunk open"
+                track("windows", f"Frunk open\n")
             if rear_trunk_open:
-                message += f"\nTrunk open"
+                track("windows", f"Trunk open\n")
             if front_driver_window:
-                message += f"\nFront driver window open"
+                track("windows", f"Front driver window open\n")
             if front_passanger_window:
-                message += f"\nFront passanger window open"
+                track("windows", f"Front passanger window open\n")
             if rear_driver_window:
-                message += f"\nRear driver side window open"
+                track("windows", f"Rear driver side window open\n")
             if rear_passanger_window:
-                message += f"\nRear passanger side window open"
+                track("windows", f"Rear passanger side window open\n")
+            track("", "")
+            if message == "":
+                message = "Nothing changed"
             await self.control.send_message(context.to_message_context(),
-                                            message)
+                                            message.strip())
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
 
