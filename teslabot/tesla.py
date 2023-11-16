@@ -567,11 +567,13 @@ class App(ControlCallback):
             dist_hr_unit        = data["gui_settings"]["gui_distance_units"]
             dist_unit           = assert_some(re.match(r"^[^/]*", dist_hr_unit), "Expected to find / from dist_hr_unit")[0]
             temp_unit           = data["gui_settings"]["gui_temperature_units"]
-            gps_as_of           = data["drive_state"]["gps_as_of"]
-            heading             = data["drive_state"]["heading"]
-            lat                 = data["drive_state"]["latitude"]
-            lon                 = data["drive_state"]["longitude"]
-            speed               = data["drive_state"]["speed"]
+            drive_state         = data.get("drive_state", {}) # seems like this is optional data
+            gps_as_of           = drive_state.get("gps_as_of")
+            heading             = drive_state.get("heading")
+            lat                 = drive_state.get("latitude")
+            lon                 = drive_state.get("longitude")
+            has_lat_lon         = lat is not None and lon is not None
+            speed               = drive_state.get("speed")
             battery_level       = data["charge_state"]["battery_level"]
             battery_range       = data["charge_state"]["battery_range"]
             est_battery_range   = data["charge_state"]["est_battery_range"]
@@ -606,7 +608,9 @@ class App(ControlCallback):
                                                            seat_heater_rear_left, seat_heater_rear_center, \
                                                            seat_heater_rear_right]])
             message += f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit} Seat heaters: {seat_heaters_str}\n"
-            message += f"Heading: {heading} " + self.format_location(Location(lat=lat, lon=lon)) + f" Speed: {speed}\n"
+            message += f"Heading: {heading}\n"
+            message += "Location: " + (self.format_location(Location(lat=lat, lon=lon)) if has_lat_lon else "unknown") + "\n"
+            message += f"Speed: {speed}\n"
             message += f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n"
             charge_eta = datetime.datetime.now() + datetime.timedelta(hours=time_to_full_charge)
             message += f"Charge limit: {charge_limit}%"
