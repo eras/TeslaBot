@@ -734,13 +734,14 @@ class App(ControlCallback):
             def call() -> T:
                 return fn(vehicle)
             result = await self._retry_to_async(call)
+        except AppException as exn:
+            await self.control.send_message(context.to_message_context(), f"Error: {exn}")
+        except teslapy.VehicleError as exn:
+            await self.control.send_message(context.to_message_context(), f"Error: {exn}")
         except Exception as exn:
-            if isinstance(exn, teslapy.VehicleError):
-                await self.control.send_message(context.to_message_context(), f"Error: {exn}")
-            else:
-                logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
-                await self.control.send_message(context.to_message_context(),
-                                                f"{context.txn} Exception :(")
+            logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
+            await self.control.send_message(context.to_message_context(),
+                                            f"{context.txn} Exception :(")
             return None
         if show_success:
             message = "Success!"
