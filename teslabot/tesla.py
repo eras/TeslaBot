@@ -683,7 +683,7 @@ class App(ControlCallback):
         result_is_set = False
         result: T
         error = None
-        while num_retries < 10:
+        while num_retries < 15:
             try:
                 result = await fn()
                 result_is_set = True
