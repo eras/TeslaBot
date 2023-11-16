@@ -1,4 +1,4 @@
-Copyright Erkki Seppälä <erkki.seppala@vincit.fi> 2022
+Copyright Erkki Seppälä <flux aet inside.org> 2022-2023
 
 # TeslaBot
 
