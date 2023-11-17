@@ -145,7 +145,7 @@ Note that by default you need to prefix commands with ```!```.
 | climate off [name]                          | Sets climate off.                                                                                                                              |
 | ac on/off [name]                            | Same as !climate.                                                                                                                              |
 | sauna on/off [name]                         | Sets max defrost on/off.                                                                                                                       |
-| info [name]                                 | Show information about the device, such as about location, climate and charging                                                                |
+| info [delta] [name]                         | Show information about the device, such as about location, climate and charging. "delta" shows only differences to the previous info.          |
 | at 06:00 command                            | At 06:00 (not before the current time) issue a command. Can be climate or info, maybe more in future.                                          |
 | at 600 command                              | Same                                                                                                                                           |
 | at 10m command                              | Schedule at now + 10 minutes                                                                                                                   |
