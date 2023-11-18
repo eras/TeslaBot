@@ -1,1 +1,1 @@
-matrix-nio[e2e]==0.20.1
+matrix-nio[e2e]==0.23.0
