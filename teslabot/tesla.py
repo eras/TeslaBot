@@ -501,7 +501,7 @@ class App(ControlCallback):
         async def report() -> None:
             await self.control.send_message(context.to_message_context(), f"Waking up {vehicle['display_name']}")
         try:
-            await call_with_delay_info(delay_sec=2.0,
+            await call_with_delay_info(delay_sec=5.0,
                                        report=report,
                                        task=to_async(vehicle.sync_wake_up))
         except teslapy.VehicleError as exn:
@@ -739,7 +739,7 @@ class App(ControlCallback):
                 error = exn
             finally:
                 logger.debug(f"Retry round complete")
-            await asyncio.sleep(pow(1.15, num_retries) * 2)
+            await asyncio.sleep(5 + pow(1.15, num_retries) * 2)
             num_retries += 1
         if num_retries > 0:
             logger.debug(f"Number of retries: {num_retries}")
