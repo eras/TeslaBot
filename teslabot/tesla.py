@@ -276,6 +276,9 @@ def cache_dump(cache: Dict[str, Any]) -> None:
     cache_doc = firestore.Client().collection(u'tesla').document(u'cache')
     cache_doc.set(cache)
 
+def miles_to_km(miles: float) -> float:
+    return miles * 1.609
+
 class App(ControlCallback):
     control: Control
     config: Config
@@ -655,7 +658,7 @@ class App(ControlCallback):
                         lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M')
                     ))
                 )
-            track("odometer", f"\nOdometer: {odometer} {dist_unit}")
+            track("odometer", f"\nOdometer: {miles_to_km(odometer) if dist_unit == 'km' else odometer} {dist_unit}")
             track("lock", f"\nVehicle is {'locked' if locked else 'unlocked'}")
             if valet_mode:
                 track("windows", f"\nValet mode enabled")
