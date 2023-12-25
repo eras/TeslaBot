@@ -655,22 +655,22 @@ class App(ControlCallback):
                         lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M')
                     ))
                 )
-            track("odometer", f"\nOdometer: {odometer} {dist_unit}\n")
-            track("lock", f"Vehicle is {'locked' if locked else 'unlocked'}\n")
+            track("odometer", f"\nOdometer: {odometer} {dist_unit}")
+            track("lock", f"\nVehicle is {'locked' if locked else 'unlocked'}")
             if valet_mode:
-                track("windows", f"Valet mode enabled\n")
+                track("windows", f"\nValet mode enabled")
             if front_trunk_open:
-                track("windows", f"Frunk open\n")
+                track("windows", f"\nFrunk open")
             if rear_trunk_open:
-                track("windows", f"Trunk open\n")
+                track("windows", f"\nTrunk open")
             if front_driver_window:
-                track("windows", f"Front driver window open\n")
+                track("windows", f"\nFront driver window open")
             if front_passanger_window:
-                track("windows", f"Front passanger window open\n")
+                track("windows", f"\nFront passanger window open")
             if rear_driver_window:
-                track("windows", f"Rear driver side window open\n")
+                track("windows", f"\nRear driver side window open")
             if rear_passanger_window:
-                track("windows", f"Rear passanger side window open\n")
+                track("windows", f"\nRear passanger side window open")
             track("", "")
             if message == "":
                 message = "Nothing changed"
