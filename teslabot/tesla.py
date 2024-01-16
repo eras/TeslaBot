@@ -482,7 +482,7 @@ class App(ControlCallback):
         return result_or_error
 
     async def _command_vehicles(self, context: CommandContext, valid: Tuple[()]) -> None:
-        vehicles = self._get_vehicle_list()
+        vehicles = await self._get_vehicle_list()
         await self.control.send_message(context.to_message_context(), f"vehicles: {vehicles}")
 
     async def _get_vehicle(self, display_name: Optional[str]) -> teslapy.Vehicle:
