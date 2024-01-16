@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast, NewType
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast, NewType, Set
 import re
 import datetime
 from configparser import ConfigParser
@@ -291,6 +291,7 @@ class App(ControlCallback):
     location_detail: LocationDetail
     cached_vehicle_list: List[Any]
     _prev_info: Dict[str, str]
+    override_vehicles_lc: Set[str] # If empty, query for devices
 
     def __init__(self,
                 control: Control,
@@ -301,6 +302,7 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         self.cached_vehicle_list = []
+        self.override_vehicles_lc = {x.lower().strip() for x in self.config.get("tesla", "override_vehicles", fallback="").split(",")}
         self._prev_info = {}
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
@@ -473,7 +475,11 @@ class App(ControlCallback):
 
     async def _get_vehicle_list(self) -> List[Any]:
         def call() -> List[Any]:
-            self.cached_vehicle_list = self.tesla.vehicle_list()
+            vehicle_list = self.tesla.vehicle_list()
+            if self.override_vehicles_lc:
+                vehicle_list = [vehicle for vehicle in vehicle_list
+                                if vehicle["display_name"].lower() in self.override_vehicles_lc]
+            self.cached_vehicle_list = vehicle_list
             return self.cached_vehicle_list
         result_or_error = await self._retry_to_async(call)
         if isinstance(result_or_error, Exception):
