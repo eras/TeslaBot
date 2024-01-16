@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast, NewType
+from typing import List, Optional, Tuple, Callable, Awaitable, Any, TypeVar, Dict, Union, cast, NewType, Set
 import re
 import datetime
 from configparser import ConfigParser
@@ -136,6 +136,7 @@ class AppState(StateElement):
         if not state.has_section("tesla"):
             state["tesla"] = {}
         state["tesla"]["location_detail"] = self.app.location_detail.value
+        state["tesla"]["override_vehicles"] = ", ".join(self.app.override_vehicles_lc)
 
         # TODO: move this to Control
         if not state.has_section("control"):
@@ -291,6 +292,7 @@ class App(ControlCallback):
     location_detail: LocationDetail
     cached_vehicle_list: List[Any]
     _prev_info: Dict[str, str]
+    override_vehicles_lc: Set[str] # If empty, query for devices
 
     def __init__(self,
                 control: Control,
@@ -301,6 +303,7 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         self.cached_vehicle_list = []
+        self.override_vehicles_lc = {x for x in {x.lower().strip() for x in self.config.get("tesla", "override_vehicles", fallback="", empty_is_none=False).split(",")} if x != ''}
         self._prev_info = {}
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
@@ -366,6 +369,9 @@ class App(ControlCallback):
         # TODO: move this to Control
         self._set_commands.register(c.Function("require-!", "true or false, whether to require ! in front of commands",
                                                p.Remaining(p.Bool()), self._command_set_require_bang))
+
+        self._set_commands.register(c.Function("override-vehicles", "List of devices to interact with (limited from the list returned by the API)",
+                                               p.Remaining(p.List_(p.AnyStr())), self._command_set_override_vehicles))
 
         self._commands.register(c.Function("set", f"Set a configuration parameter\n{indent(2, self._set_commands.help())}",
                                            SetArgsParser(self), self._command_set))
@@ -456,6 +462,12 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         f"Require bang set to {self.control.require_bang}")
 
+    async def _command_set_override_vehicles(self, context: CommandContext, args: List[str]) -> None:
+        self.override_vehicles_lc = {arg.lower() for arg in args}
+        await self.state.save()
+        await self.control.send_message(context.to_message_context(),
+                                        f"Override vehicles set to {self.override_vehicles_lc}")
+
     async def _command_authorized(self, context: CommandContext, authorization_response: Optional[str]) -> None:
         if self.tesla.authorized:
             await self.control.send_message(context.to_message_context(), "Already authorized!")
@@ -473,7 +485,11 @@ class App(ControlCallback):
 
     async def _get_vehicle_list(self) -> List[Any]:
         def call() -> List[Any]:
-            self.cached_vehicle_list = self.tesla.vehicle_list()
+            vehicle_list = self.tesla.vehicle_list()
+            if self.override_vehicles_lc != set():
+                vehicle_list = [vehicle for vehicle in vehicle_list
+                                if vehicle["display_name"].lower() in self.override_vehicles_lc]
+            self.cached_vehicle_list = vehicle_list
             return self.cached_vehicle_list
         result_or_error = await self._retry_to_async(call)
         if isinstance(result_or_error, Exception):
