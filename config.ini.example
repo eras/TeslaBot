@@ -5,6 +5,9 @@ control = matrix
 [tesla]
 email = user@example.com
 
+# To constrain the list of available devices in the bot:
+# override_vehicles = vehicle1,vehicle2
+
 [matrix]
 # Store matrix state in this directory
 store_path = matrix_store
