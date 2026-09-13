@@ -71,21 +71,19 @@ Firestore requires the bot to be run on gcp, because authentication is done auto
 
 ## Tesla
 
-On the first startup the bot needs given an authorization to the Tesla
-API. This can happen by using the cli tool in
-https://pypi.org/project/TeslaPy/ to generate `cache.json` for you and
-then pointing `tesla.credential_store` in the configuration to that
-file. Alternatively you can visit the URL the bot will tell you (in
-the admin room if one is available, otherwise you need to fish it from
-the logs), and once you have entered your Tesla credentials, you will
-end up to a page with an error. But this is fine, at this point you
-just copy the URL from your web browser and send the command
+On the first startup the bot needs authorization to the Tesla API. In
+the bot's admin room:
 
-```
-!authorize <paste URL here>
-```
+1. Run `!authorize` and open the URL TeslaBot provides.
+2. Authenticate with Tesla in the browser.
+3. After reaching the `/void/callback` URL, copy the full browser URL.
+   The resulting page may display an error or Page Not Found; this is
+   expected.
+4. Send `!authorize <paste URL here>` in the admin room.
 
-to the bot admin room and you're done
+TeslaBot stores the resulting token in its configured credential store;
+TeslaPy refreshes it automatically. If an old cached token no longer
+works, run `!logout` and start this flow again.
 
 ## Setup with Docker
 
