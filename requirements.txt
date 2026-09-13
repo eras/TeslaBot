@@ -1,4 +1,5 @@
-TeslaPy==2.5.0
+TeslaPy==2.9.2
+httpx[http2]>=0.27.0
 python-socketio[asyncio_client]==5.5.2
 aiohttp==3.8.6
 aiounittest==1.4.1
