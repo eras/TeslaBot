@@ -7,6 +7,4 @@ typing-extensions==4.1.1
 google-cloud-secret-manager==2.10.0
 google-cloud-firestore==2.4.0
 setuptools==65.5.1
-urllib3==1.26.18
-# requests 2.32+ requires urllib3 2.x connection-pool APIs.
-requests<2.32.0
+urllib3>=2.0
