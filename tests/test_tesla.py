@@ -44,6 +44,12 @@ class FakeTesla:
         self.logout_calls += 1
         self.authorized = False
 
+    def vehicle_list(self) -> List[Dict[str, str]]:
+        return [
+            {"display_name": "Model 3"},
+            {"display_name": "Model Y"},
+        ]
+
 
 class TestTeslaAuthorization(unittest.TestCase):
     def setUp(self) -> None:
@@ -92,3 +98,14 @@ class TestTeslaAuthorization(unittest.TestCase):
         asyncio.get_event_loop().run_until_complete(self.app._command_logout(self.admin_context, ()))
         self.assertEqual(self.app.tesla.logout_calls, 1)
         self.assertEqual(self.control.messages[-1][1], "Logout successful!")
+
+    def test_empty_override_lists_all_vehicles(self) -> None:
+        config = Config("test.ini", {
+            "common": {"storage": "local"},
+            "tesla": {"email": "driver@example.com"},
+        })
+        app = tesla.App(FakeControl(), Env(config, FileState("test-state.ini")))
+
+        vehicles = asyncio.get_event_loop().run_until_complete(app._get_vehicle_list())
+
+        self.assertEqual([vehicle["display_name"] for vehicle in vehicles], ["Model 3", "Model Y"])

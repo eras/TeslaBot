@@ -302,7 +302,11 @@ class App(ControlCallback):
         self.locations = Locations(self.state)
         self.location_detail = LocationDetail.Full
         self.cached_vehicle_list = []
-        self.override_vehicles_lc = {x.lower().strip() for x in self.config.get("tesla", "override_vehicles", fallback="").split(",")}
+        self.override_vehicles_lc = {
+            name.lower().strip()
+            for name in self.config.get("tesla", "override_vehicles", fallback="", empty_is_none=False).split(",")
+            if name.strip()
+        }
         self._prev_info = {}
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
