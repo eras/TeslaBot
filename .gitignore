@@ -9,3 +9,4 @@ matrix_store
 cache.json
 notes.org
 teslabot/data
+tmp/
