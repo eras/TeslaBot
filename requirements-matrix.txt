@@ -1,1 +1,3 @@
 matrix-nio[e2e]==0.23.0
+# referencing 0.36.0 uses Python 3.13's TypeVar default parameter at import time.
+referencing<0.36.0
