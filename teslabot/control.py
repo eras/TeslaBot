@@ -76,7 +76,8 @@ class Control(ABC):
     async def process_message(self, command_context: CommandContext, message: str) -> None:
         has_bang = bool(re.match(r"^!", message))
         if not self.require_bang or has_bang:
-            logger.info(f"< {message}")
+            logged_message = re.sub(r"^(!?authorize)\s+.*$", r"\1 [redacted]", message)
+            logger.info(f"< {logged_message}")
             try:
                 try:
                     invocation = commands.Invocation.parse(message[1:] if has_bang else message)

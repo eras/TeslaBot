@@ -392,7 +392,7 @@ class App(ControlCallback):
                                command_context: CommandContext,
                                invocation: Invocation) -> None:
         """ControlCallback"""
-        logger.debug(f"command_callback({invocation.name} {invocation.args})")
+        logger.debug(f"command_callback({invocation.name})")
         if self._commands.has_command(invocation.name):
             try:
                 await self._commands.invoke(command_context, invocation)
