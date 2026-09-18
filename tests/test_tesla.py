@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from unittest import mock
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from teslabot.config import Config
 from teslabot.control import CommandContext, Control, MessageContext
@@ -92,3 +92,85 @@ class TestTeslaAuthorization(unittest.TestCase):
         asyncio.get_event_loop().run_until_complete(self.app._command_logout(self.admin_context, ()))
         self.assertEqual(self.app.tesla.logout_calls, 1)
         self.assertEqual(self.control.messages[-1][1], "Logout successful!")
+
+    def test_info_shows_climate_state_and_target_temperatures(self) -> None:
+        data: Dict[str, Any] = {
+            "gui_settings": {"gui_distance_units": "km/hr", "gui_temperature_units": "C"},
+            "drive_state": {},
+            "charge_state": {
+                "battery_level": 80,
+                "battery_range": 300,
+                "est_battery_range": 280,
+                "charge_limit_soc": 90,
+                "charge_current_request": 16,
+                "scheduled_charging_mode": "Off",
+                "scheduled_charging_start_time": None,
+                "charge_rate": 0,
+                "charging_state": "Disconnected",
+                "time_to_full_charge": 0,
+            },
+            "vehicle_state": {
+                "car_version": "test",
+                "ft": 0,
+                "rt": 0,
+                "locked": True,
+                "fd_window": 0,
+                "fp_window": 0,
+                "rd_window": 0,
+                "rp_window": 0,
+                "valet_mode": False,
+                "odometer": 0,
+                "vehicle_name": "Test vehicle",
+            },
+            "climate_state": {
+                "inside_temp": 19.5,
+                "outside_temp": 12,
+                "is_climate_on": True,
+                "is_preconditioning": False,
+                "climate_keeper_mode": "off",
+                "driver_temp_setting": 20,
+                "passenger_temp_setting": 21,
+                "seat_heater_left": 0,
+                "seat_heater_right": 0,
+                "seat_heater_rear_center": 0,
+                "seat_heater_rear_left": 0,
+                "seat_heater_rear_right": 0,
+            },
+        }
+        with mock.patch.object(
+            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+        ), mock.patch.object(
+            self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                self.app._command_info(self.admin_context, ((None, None), ()))
+            )
+
+        self.assertIn("Climate: on Target: 20°C / 21°C", self.control.messages[-1][1])
+
+        data["gui_settings"]["gui_temperature_units"] = "F"
+        with mock.patch.object(
+            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+        ), mock.patch.object(
+            self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                self.app._command_info(self.admin_context, ((None, None), ()))
+            )
+
+        message = self.control.messages[-1][1]
+        self.assertIn("Inside: 67.1°F Outside: 53.6°F", message)
+        self.assertIn("Climate: on Target: 68°F / 69.8°F", message)
+
+        data["climate_state"]["passenger_temp_setting"] = 20
+        with mock.patch.object(
+            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+        ), mock.patch.object(
+            self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
+        ):
+            asyncio.get_event_loop().run_until_complete(
+                self.app._command_info(self.admin_context, ((None, None), ()))
+            )
+
+        self.assertIn("Climate: on Target: 68°F", self.control.messages[-1][1])
+        self.assertNotIn("68°F /", self.control.messages[-1][1])

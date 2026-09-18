@@ -387,6 +387,13 @@ def miles_to_km(miles: float) -> float:
     return miles * 1.609
 
 
+def format_temperature(celsius: Optional[float], unit: str) -> str:
+    if celsius is None:
+        return "unknown"
+    temperature = celsius * 1.8 + 32 if unit == "F" else celsius
+    return f"{temperature:g}°{unit}"
+
+
 class App(ControlCallback):
     control: Control
     config: Config
@@ -934,6 +941,13 @@ class App(ControlCallback):
             climate_state = data["climate_state"]
             inside_temp = climate_state.get("inside_temp")
             outside_temp = climate_state.get("outside_temp")
+            climate_on = climate_state.get(
+                "is_climate_on", climate_state.get("is_auto_conditioning_on")
+            )
+            preconditioning = climate_state.get("is_preconditioning")
+            climate_keeper_mode = climate_state.get("climate_keeper_mode")
+            driver_temp_setting = climate_state.get("driver_temp_setting")
+            passenger_temp_setting = climate_state.get("passenger_temp_setting")
             seat_heater_left = climate_state.get("seat_heater_left")
             seat_heater_right = climate_state.get("seat_heater_right")
             seat_heater_rear_center = climate_state.get("seat_heater_rear_center")
@@ -978,7 +992,33 @@ class App(ControlCallback):
             )
             track(
                 "temperature",
-                f"Inside: {inside_temp}°{temp_unit} Outside: {outside_temp}°{temp_unit} Seat heaters: {seat_heaters_str}\n",
+                f"Inside: {format_temperature(inside_temp, temp_unit)} Outside: {format_temperature(outside_temp, temp_unit)} Seat heaters: {seat_heaters_str}\n",
+            )
+            if preconditioning:
+                climate_status = "preconditioning"
+            elif climate_on is None:
+                climate_status = "unknown"
+            else:
+                climate_status = "on" if climate_on else "off"
+            if climate_keeper_mode not in (None, "off"):
+                climate_status += f" ({climate_keeper_mode})"
+            if driver_temp_setting == passenger_temp_setting:
+                target_temperature = (
+                    format_temperature(driver_temp_setting, temp_unit)
+                    if driver_temp_setting is not None
+                    else None
+                )
+            else:
+                target_temperature = " / ".join(
+                    format_temperature(temp, temp_unit)
+                    for temp in (driver_temp_setting, passenger_temp_setting)
+                    if temp is not None
+                ) or None
+            track(
+                "temperature",
+                f"Climate: {climate_status}"
+                + (f" Target: {target_temperature}" if target_temperature else "")
+                + "\n",
             )
             track("location", f"Heading: {heading}\n")
             track(
