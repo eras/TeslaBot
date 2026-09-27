@@ -22,6 +22,7 @@ import json
 from enum import Enum
 import math
 import time
+import hashlib
 from abc import ABC, abstractmethod
 
 import teslapy
@@ -76,6 +77,32 @@ class ArgException(AppException):
 
 class VehicleException(AppException):
     pass
+
+
+@dataclass
+class VehicleSnapshot:
+    vehicle_id: str
+    display_name: str
+    observed_at: datetime.datetime
+    battery_level: Optional[int]
+    charging_state: Optional[str]
+    charge_limit: Optional[int]
+    charge_amps: Optional[int]
+    climate_on: Optional[bool]
+    defrost_mode: Optional[int]
+    inside_temp: Optional[float]
+    outside_temp: Optional[float]
+    temperature_unit: str
+    data: Dict[str, Any]  # Additional Tesla fields used by the existing chat info view.
+
+
+@dataclass
+class ActionResult:
+    vehicle_id: str
+    action: str
+    requested_value: Union[bool, int, str]
+    success: bool
+    error: Optional[str] = None
 
 
 VehicleName = NewType("VehicleName", str)
@@ -808,11 +835,18 @@ class App(ControlCallback):
             logger.debug(f"vehicle={vehicles[0]}")
             return vehicles[0]
 
-    async def _wake(self, context: CommandContext, vehicle: teslapy.Vehicle) -> None:
+    async def _get_vehicle_by_id(self, vehicle_id: str) -> teslapy.Vehicle:
+        vehicles = [v for v in await self._get_vehicle_list() if self._vehicle_id(v) == vehicle_id]
+        if len(vehicles) != 1:
+            raise ArgException("Vehicle identity not found or ambiguous")
+        return vehicles[0]
+
+    async def _wake(self, context: Optional[CommandContext], vehicle: teslapy.Vehicle) -> None:
         async def report() -> None:
-            await self.control.send_message(
-                context.to_message_context(), f"Waking up {vehicle['display_name']}"
-            )
+            if context is not None:
+                await self.control.send_message(
+                    context.to_message_context(), f"Waking up {vehicle['display_name']}"
+                )
 
         try:
             await call_with_delay_info(
@@ -883,19 +917,85 @@ class App(ControlCallback):
             else:
                 assert False
 
+    async def refresh_vehicle(
+        self, vehicle_name: Optional[str], context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> VehicleSnapshot:
+        def call(vehicle: teslapy.Vehicle) -> Any:
+            return vehicle.get_vehicle_data()
+
+        vehicle, data = await self._execute_vehicle(vehicle_name, call, context, vehicle_id)
+        climate = data.get("climate_state") or {}
+        charge = data.get("charge_state") or {}
+        return VehicleSnapshot(
+            vehicle_id=self._vehicle_id(vehicle),
+            display_name=vehicle["display_name"],
+            observed_at=datetime.datetime.now(datetime.timezone.utc),
+            battery_level=charge.get("battery_level"),
+            charging_state=charge.get("charging_state"),
+            charge_limit=charge.get("charge_limit_soc"),
+            charge_amps=charge.get("charge_current_request"),
+            climate_on=climate.get("is_climate_on", climate.get("is_auto_conditioning_on")),
+            defrost_mode=climate.get("defrost_mode"),
+            inside_temp=climate.get("inside_temp"),
+            outside_temp=climate.get("outside_temp"),
+            temperature_unit="C",  # Tesla API temperatures are Celsius regardless of GUI setting.
+            data=data,
+        )
+
+    async def _perform_action(
+        self, vehicle_name: Optional[str], action: str,
+        requested_value: Union[bool, int], command: str,
+        kwargs: Optional[Dict[str, Any]] = None,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        try:
+            def call(vehicle: teslapy.Vehicle) -> Any:
+                return vehicle.command(command, **(kwargs or {}))
+
+            vehicle, result = await self._execute_vehicle(vehicle_name, call, context, vehicle_id)
+            if result is False or (isinstance(result, dict) and result.get("result") is False):
+                return ActionResult(self._vehicle_id(vehicle), action,
+                                    requested_value, False, "Vehicle rejected command")
+            return ActionResult(self._vehicle_id(vehicle), action,
+                                requested_value, True)
+        except (AppException, teslapy.VehicleError, HTTPError, ProtocolError, ConnectionError) as exn:
+            return ActionResult(vehicle_id or "", action, requested_value, False, str(exn))
+
+    async def set_ac(
+        self, vehicle_name: Optional[str], enabled: bool,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        return await self._perform_action(vehicle_name, "ac", enabled,
+                                          "CLIMATE_ON" if enabled else "CLIMATE_OFF", context=context,
+                                          vehicle_id=vehicle_id)
+
+    async def set_sauna(
+        self, vehicle_name: Optional[str], enabled: bool,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        return await self._perform_action(vehicle_name, "sauna", enabled,
+                                          "MAX_DEFROST", {"on": enabled}, context, vehicle_id)
+
+    async def set_charge_limit(
+        self, vehicle_name: Optional[str], percent: int,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        op = ChargeOpSetLimit(percent)
+        command, kwargs = op.get_command()
+        return await self._perform_action(vehicle_name, "charge_limit", percent,
+                                          command, kwargs, context, vehicle_id)
+
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
         (delta_kwd, vehicle_name), _ = args
         delta_mode = delta_kwd == "delta"
         try:
-
-            def call(vehicle: teslapy.Vehicle) -> Any:
-                return vehicle.get_vehicle_data()
-
-            data = await self._command_on_vehicle(
-                context, vehicle_name, call, show_success=False
-            )
-            if not data:
-                return
+            snapshot = await self.refresh_vehicle(vehicle_name, context)
+            data = snapshot.data
             # refresh cache for parsers etc
             await self._get_vehicle_list()
 
@@ -968,9 +1068,10 @@ class App(ControlCallback):
                 nonlocal last_topic
 
                 if topic != last_topic:
-                    if self._prev_info.get(last_topic, "") != buffer:
+                    topic_key = f"{snapshot.vehicle_id}:{last_topic}"
+                    if self._prev_info.get(topic_key, "") != buffer:
                         message += buffer
-                        self._prev_info[last_topic] = buffer
+                        self._prev_info[topic_key] = buffer
                     elif not delta_mode:
                         message += buffer
                     buffer = ""
@@ -1090,6 +1191,8 @@ class App(ControlCallback):
             )
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
+        except (AppException, teslapy.VehicleError, ProtocolError, ConnectionError) as exn:
+            await self.control.send_message(context.to_message_context(), f"Error: {exn}")
 
     async def _command_lock(
         self, context: CommandContext, args: LockUnlockArgs
@@ -1117,6 +1220,11 @@ class App(ControlCallback):
 
     async def _command_charge(self, context: CommandContext, args: ChargeArgs) -> None:
         (charge_op, vehicle_name), _ = args
+        if isinstance(charge_op, ChargeOpSetLimit):
+            result = await self.set_charge_limit(vehicle_name, charge_op.percent, context)
+            await self.control.send_message(context.to_message_context(),
+                                            "Success!" if result.success else f"Error: {result.error}")
+            return
         command, kwargs = charge_op.get_command()
         logger.debug(f"Sending {command} {kwargs}")
 
@@ -1180,6 +1288,23 @@ class App(ControlCallback):
 
         return await self._retry(call)
 
+    async def _execute_vehicle(
+        self, vehicle_name: Optional[str], fn: Callable[[teslapy.Vehicle], T],
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> Tuple[teslapy.Vehicle, T]:
+        vehicle = (await self._get_vehicle_by_id(vehicle_id) if vehicle_id is not None
+                   else await self._get_vehicle(vehicle_name))
+        await self._retry(lambda: self._wake(context, vehicle))
+        result = await self._retry_to_async(lambda: fn(vehicle))
+        return vehicle, result
+
+    @staticmethod
+    def _vehicle_id(vehicle: teslapy.Vehicle) -> str:
+        # Do not put the VIN (or arbitrary display names) into MQTT topics.
+        identity = str(vehicle.get("vin") or vehicle["display_name"])
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+
     async def _command_on_vehicle(
         self,
         context: CommandContext,
@@ -1189,22 +1314,17 @@ class App(ControlCallback):
     ) -> Optional[T]:
         result: Optional[T] = None
         try:
-            vehicle = await self._get_vehicle(vehicle_name)
-            await self._retry(lambda: self._wake(context, vehicle))
-
-            # https://github.com/python/mypy/issues/9590
-            def call() -> T:
-                return fn(vehicle)
-
-            result = await self._retry_to_async(call)
+            _, result = await self._execute_vehicle(vehicle_name, fn, context)
         except AppException as exn:
             await self.control.send_message(
                 context.to_message_context(), f"Error: {exn}"
             )
+            return None
         except teslapy.VehicleError as exn:
             await self.control.send_message(
                 context.to_message_context(), f"Error: {exn}"
             )
+            return None
         except Exception as exn:
             logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
             await self.control.send_message(
@@ -1222,26 +1342,19 @@ class App(ControlCallback):
         self, context: CommandContext, args: ClimateArgs
     ) -> None:
         (mode, vehicle_name), _ = args
-        command = "CLIMATE_ON" if mode else "CLIMATE_OFF"
-        logger.debug(f"Sending {command}")
-
-        def call(vehicle: teslapy.Vehicle) -> Any:
-            return vehicle.command(command)
-
-        await self._command_on_vehicle(context, vehicle_name, call)
+        result = await self.set_ac(vehicle_name, mode, context)
+        await self.control.send_message(context.to_message_context(),
+                                        "Success!" if result.success else f"Error: {result.error}")
 
     async def _command_sauna(self, context: CommandContext, args: ClimateArgs) -> None:
         (mode, vehicle_name), _ = args
-        command = "MAX_DEFROST"
-        logger.debug(f"Sending {command} {mode}")
-
-        def call(vehicle: teslapy.Vehicle) -> Any:
-            return vehicle.command(command, on=mode)
-
-        await self._command_on_vehicle(context, vehicle_name, call)
+        result = await self.set_sauna(vehicle_name, mode, context)
+        await self.control.send_message(context.to_message_context(),
+                                        "Success!" if result.success else f"Error: {result.error}")
 
     async def run(self) -> None:
-        await self._scheduler.start()
+        if self.control.run_scheduled_commands:
+            await self._scheduler.start()
         await self._load_state()
         await self.control.send_message(
             MessageContext(admin_room=False), f"TeslaBot {__version__} started"

@@ -93,6 +93,80 @@ class TestTeslaAuthorization(unittest.TestCase):
         self.assertEqual(self.app.tesla.logout_calls, 1)
         self.assertEqual(self.control.messages[-1][1], "Logout successful!")
 
+    def test_typed_actions_use_existing_tesla_commands(self) -> None:
+        vehicle = {"display_name": "Test vehicle", "vin": "VIN1"}
+        with mock.patch.object(self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=(vehicle, True))) as execute:
+            result = asyncio.get_event_loop().run_until_complete(self.app.set_ac(None, True))
+            self.assertTrue(result.success)
+            car = mock.Mock()
+            execute.call_args.args[1](car)
+            car.command.assert_called_once_with("CLIMATE_ON")
+            result = asyncio.get_event_loop().run_until_complete(self.app.set_sauna(None, False))
+            self.assertTrue(result.success)
+            car.command.reset_mock()
+            execute.call_args.args[1](car)
+            car.command.assert_called_once_with("MAX_DEFROST", on=False)
+            result = asyncio.get_event_loop().run_until_complete(self.app.set_charge_limit(None, 70))
+            self.assertTrue(result.success)
+            car.command.reset_mock()
+            execute.call_args.args[1](car)
+            car.command.assert_called_once_with("CHANGE_CHARGE_LIMIT", percent="70")
+            with self.assertRaises(tesla.ArgException):
+                asyncio.get_event_loop().run_until_complete(self.app.set_charge_limit(None, 101))
+
+    def test_failed_legacy_vehicle_operation_does_not_report_success(self) -> None:
+        with mock.patch.object(self.app, "_execute_vehicle", new=mock.AsyncMock(side_effect=tesla.ArgException("missing"))):
+            asyncio.get_event_loop().run_until_complete(
+                self.app._command_on_vehicle(self.admin_context, None, lambda vehicle: True))
+        self.assertEqual(self.control.messages[-1][1], "Error: missing")
+
+    def test_vehicle_identity_survives_rename_and_name_reuse(self) -> None:
+        first = {"display_name": "Alpha", "vin": "VIN_A"}
+        second = {"display_name": "Beta", "vin": "VIN_B"}
+        first_id = self.app._vehicle_id(first)
+        with mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[first, second])):
+            self.assertIs(asyncio.get_event_loop().run_until_complete(
+                self.app._get_vehicle_by_id(first_id)), first)
+        first["display_name"], second["display_name"] = "Beta", "Alpha"
+        with mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[first, second])):
+            self.assertIs(asyncio.get_event_loop().run_until_complete(
+                self.app._get_vehicle_by_id(first_id)), first)
+        with mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[second])):
+            with self.assertRaises(tesla.ArgException):
+                asyncio.get_event_loop().run_until_complete(self.app._get_vehicle_by_id(first_id))
+
+    def test_duplicate_names_resolve_by_vehicle_id(self) -> None:
+        vehicles = [{"display_name": "Same", "vin": vin} for vin in ("VIN_A", "VIN_B")]
+        with mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=vehicles)):
+            self.assertIs(asyncio.get_event_loop().run_until_complete(
+                self.app._get_vehicle_by_id(self.app._vehicle_id(vehicles[1]))), vehicles[1])
+
+    def test_action_failure_preserves_mqtt_identity(self) -> None:
+        with mock.patch.object(self.app, "_execute_vehicle", new=mock.AsyncMock(side_effect=tesla.ArgException("missing"))):
+            result = asyncio.get_event_loop().run_until_complete(
+                self.app.set_ac(None, True, vehicle_id="id1"))
+        self.assertFalse(result.success)
+        self.assertEqual(result.vehicle_id, "id1")
+
+    def test_snapshot_temperatures_are_celsius_even_if_gui_uses_fahrenheit(self) -> None:
+        data = {"gui_settings": {"gui_temperature_units": "F"},
+                "climate_state": {"inside_temp": 20.0, "outside_temp": -2.0},
+                "charge_state": {}}
+        vehicle = {"display_name": "Test vehicle", "vin": "VIN1"}
+        with mock.patch.object(self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=(vehicle, data))):
+            snapshot = asyncio.get_event_loop().run_until_complete(self.app.refresh_vehicle(None))
+        self.assertEqual((snapshot.inside_temp, snapshot.outside_temp, snapshot.temperature_unit),
+                         (20.0, -2.0, "C"))
+
+    def test_mqtt_run_does_not_start_persisted_scheduler(self) -> None:
+        self.control.run_scheduled_commands = False
+        self.app.tesla.authorized = True
+        with mock.patch.object(self.app._scheduler, "start", new=mock.AsyncMock()) as start, \
+             mock.patch.object(self.app, "_load_state", new=mock.AsyncMock()), \
+             mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock()):
+            asyncio.get_event_loop().run_until_complete(self.app.run())
+            start.assert_not_awaited()
+
     def test_info_shows_climate_state_and_target_temperatures(self) -> None:
         data: Dict[str, Any] = {
             "gui_settings": {"gui_distance_units": "km/hr", "gui_temperature_units": "C"},
@@ -138,7 +212,7 @@ class TestTeslaAuthorization(unittest.TestCase):
             },
         }
         with mock.patch.object(
-            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+            self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=({"display_name": "Test vehicle", "vin": "VIN1"}, data))
         ), mock.patch.object(
             self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
         ):
@@ -150,7 +224,7 @@ class TestTeslaAuthorization(unittest.TestCase):
 
         data["gui_settings"]["gui_temperature_units"] = "F"
         with mock.patch.object(
-            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+            self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=({"display_name": "Test vehicle", "vin": "VIN1"}, data))
         ), mock.patch.object(
             self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
         ):
@@ -164,7 +238,7 @@ class TestTeslaAuthorization(unittest.TestCase):
 
         data["climate_state"]["passenger_temp_setting"] = 20
         with mock.patch.object(
-            self.app, "_command_on_vehicle", new=mock.AsyncMock(return_value=data)
+            self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=({"display_name": "Test vehicle", "vin": "VIN1"}, data))
         ), mock.patch.object(
             self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
         ):

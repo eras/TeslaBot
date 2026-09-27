@@ -47,6 +47,7 @@ class DefaultControlCallback(ControlCallback):
         print(f"command_callback({command_context}, {invocation.name} {invocation.args})")
 
 class Control(ABC):
+    run_scheduled_commands = True
     callback: ControlCallback
     local_commands: commands.Commands[CommandContext]
     require_bang: bool
