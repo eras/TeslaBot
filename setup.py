@@ -22,6 +22,7 @@ setup(
     extras_require={
         "matrix": lines("requirements-matrix.txt"),
         "slack": lines("requirements-slack.txt"),
+        "mqtt": ["aiomqtt>=2.0,<3.0"],
     },
     entry_points={
         'secret_sources': [

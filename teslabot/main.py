@@ -75,10 +75,17 @@ async def async_main() -> None:
             from . import slack
             control_ = slack.SlackControl(env=env)
             slack.logger.setLevel(log.DEBUG)
+        elif control_name == "mqtt":
+            from . import mqtt
+            control_ = mqtt.MqttControl(env=env)
         else:
-            logger.fatal(f"Invalid control {control_name}, expected matrix or slack")
+            logger.fatal(f"Invalid control {control_name}, expected matrix, slack or mqtt")
             return
         app = tesla.App(env=env, control=control_)
+        if control_name == "mqtt":
+            from . import mqtt
+            assert isinstance(control_, mqtt.MqttControl)
+            control_.set_app(app)
         await control_.setup()
         asyncio.create_task(control_.run())
         asyncio.create_task(app.run())
