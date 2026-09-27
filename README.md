@@ -85,6 +85,38 @@ TeslaBot stores the resulting token in its configured credential store;
 TeslaPy refreshes it automatically. If an old cached token no longer
 works, run `!logout` and start this flow again.
 
+## MQTT and Home Assistant
+
+Install `TeslaBot[mqtt]` (the Docker image includes it). First authorize
+Tesla through Matrix or Slack using the same credential store, then set
+`common.control = mqtt` and configure `[mqtt]` as in `config.ini.example`.
+MQTT deliberately has no authorization or other admin commands. Use a broker
+account with access limited to the TeslaBot topics; enable TLS when connecting
+to a remote broker.
+
+TeslaBot publishes retained Home Assistant MQTT discovery configurations for
+each vehicle: battery and charging sensors, a last-refresh timestamp, climate
+switch, charge-limit number, refresh button, and separate max-defrost on/off
+buttons. The latter are buttons because not all vehicle responses expose a
+reliable max-defrost state. Vehicle topic IDs are stable hashes of the VIN,
+falling back to the display name when no VIN is supplied. The topic prefix is
+`teslabot` by default. Commands are non-retained messages to:
+
+| Topic | Payload |
+|-------|---------|
+| `teslabot/<id>/refresh/set` | Any payload; fetch vehicle state |
+| `teslabot/<id>/ac/set` | `ON` or `OFF` |
+| `teslabot/<id>/sauna/set` | `ON` or `OFF` |
+| `teslabot/<id>/charge_limit/set` | Integer `0` through `100` |
+
+The retained `teslabot/<id>/state` JSON contains observed values and
+`observed_at`. Non-retained `teslabot/<id>/result` reports action outcomes.
+No automatic polling is performed: use a Home Assistant automation to press
+the refresh button periodically if desired. Successful adjustments trigger a
+single follow-up read; a failed or delayed read never substitutes the requested
+value for observed state. Old retained readings may be stale after a restart;
+use the last-refresh sensor to assess freshness. Location is not published.
+
 ## Setup with Docker
 
 ```

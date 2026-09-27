@@ -8,7 +8,7 @@ WORKDIR /build
 COPY requirements.txt requirements-slack.txt requirements-matrix.txt /build/
 RUN pip install --break-system-packages -r requirements.txt -r requirements-slack.txt -r requirements-matrix.txt
 COPY .git /build/.git/
-RUN git reset --hard && pip install --break-system-packages .[slack,matrix]
+RUN git reset --hard && pip install --break-system-packages .[slack,matrix,mqtt]
 
 FROM debian:bookworm-slim
 

@@ -32,3 +32,14 @@ slack_app_secret_id =     <slack app key>
 slack_admin_channel_id =  <admin channel id from slack>
 # Channel where all the messages are sent
 channel = #teslacontrol
+
+# MQTT is a standalone control mode: set common.control = mqtt above.
+# Bootstrap Tesla authorization via Matrix/Slack before switching to MQTT.
+[mqtt]
+host = localhost
+port = 1883
+# username = teslabot
+# password = secret
+tls = false
+prefix = teslabot
+discovery_prefix = homeassistant
