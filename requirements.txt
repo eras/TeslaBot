@@ -1,10 +1,10 @@
 TeslaPy==2.9.2
 httpx[http2]>=0.27.0
-python-socketio[asyncio_client]==5.5.2
+python-socketio[asyncio_client]==5.16.4
 aiohttp>=3.10,<4.0
 aiounittest==1.4.1
 typing-extensions==4.1.1
 google-cloud-secret-manager==2.10.0
-google-cloud-firestore==2.4.0
-setuptools==65.5.1
+google-cloud-firestore==2.21.0
+setuptools==83.0.0
 urllib3>=2.0
