@@ -181,7 +181,8 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(adapter.active)
         self.assertFalse(self.app.authorized)
         self.assertIn("Tesla request failed", self.chat.messages[-1][1])
-        self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+        self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
+        self.assertIn("Traceback (most recent call last)", "\n".join(logs.output))
         await asyncio.wait_for(self.app._command_logout(context, ()), 1)
 
     async def test_rejected_real_sdk_token_starts_fresh_pkce_flow(self):
@@ -222,7 +223,7 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs(level="WARNING") as logs:
             await self.chat.process_message(context, "!authorize")
         self.assertIn("check credential storage/connectivity", self.chat.messages[-1][1])
-        self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+        self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
         sdk.logout = original_logout
         await self.app._command_authorized(context, None)
         url = self.chat.messages[-1][1].split("Authorization URL: ", 1)[1].split(" ", 1)[0]
@@ -291,7 +292,8 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sender.call_count, 4)
             await self.chat.process_message(control.CommandContext(False, self.chat), "!ping")
             self.assertEqual(self.chat.messages[-1][1], "pong")
-            self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("Traceback (most recent call last)", "\n".join(logs.output))
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -493,7 +495,7 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
         self.assertFalse(runtime.done())
         self.assertFalse(any("Authorization URL:" in text for _, text in self.chat.messages))
-        self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+        self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
         runtime.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await runtime
@@ -602,7 +604,7 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fn.call_count, 3)
         self.assertEqual(sleep.await_count, 2)
 
-    async def test_default_cli_logging_emits_mixed_readiness_and_retry_without_secrets(self):
+    async def test_default_cli_logging_emits_readiness_retry_and_sdk_diagnostics(self):
         root = logging.getLogger()
         root_level = root.level
         handlers = list(root.handlers)
@@ -662,7 +664,9 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
             for expected in ("Selected controls: slack,mqtt", "Slack ready", "MQTT initialized",
                              "MQTT online: generation 0, 1 vehicles", "MQTT reconciliation interrupted: MqttError"):
                 self.assertIn(expected, text)
-            self.assertNotIn("SECRET_SENTINEL", text)
+            self.assertIn("SECRET_SENTINEL SDK payload", text)
+            self.assertIn("MqttError: SECRET_SENTINEL", text)
+            self.assertIn("Traceback (most recent call last)", text)
         finally:
             root.setLevel(root_level)
             for handler in root.handlers[:]:

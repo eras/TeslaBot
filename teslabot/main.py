@@ -77,9 +77,11 @@ async def async_main() -> None:
                 if name == "matrix":
                     from .matrix import MatrixControl
                     children.append(MatrixControl(env))
+                    log.getLogger("teslabot.matrix").setLevel(log.INFO)
                 elif name == "slack":
                     from .slack import SlackControl
                     children.append(SlackControl(env))
+                    log.getLogger("teslabot.slack").setLevel(log.DEBUG)
                 else:
                     from .mqtt import MqttControl
                     children.append(MqttControl(env))
@@ -112,8 +114,8 @@ async def async_main() -> None:
         logger.fatal("Configuration error: %s", exn.args[0])
         raise SystemExit(1)
     except Exception as exn:
-        logger.fatal("Terminal application failure: %s", type(exn).__name__)
-        raise SystemExit(1) from None
+        logger.exception("Terminal application failure: %s", exn)
+        raise SystemExit(1) from exn
 
 def main() -> None:
     asyncio.run(async_main())

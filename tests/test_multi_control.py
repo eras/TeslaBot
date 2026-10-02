@@ -294,7 +294,7 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.tesla.logout_calls, 1)
         self.assertEqual(self.app.tesla.fetch_token_calls, ["https://example.com/first", "https://example.com/second"])
 
-    async def test_parser_and_auth_exception_logs_have_no_secrets(self):
+    async def test_parser_and_auth_exception_logs_preserve_diagnostics(self):
         import oauthlib.oauth2
         secret = "SECRET_SENTINEL"
         self.app.tesla.fetch_token = mock.Mock(side_effect=oauthlib.oauth2.InvalidGrantError(description=secret))
@@ -304,8 +304,10 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
                          f"!authorize not-a-url-{secret}", f"!authorize https://example.com/{secret} extra"):
                 await self.a.process_message(control.CommandContext(True, self.a), text)
         logged = "\n".join(logs.output) + output.getvalue()
-        self.assertNotIn(secret, logged)
-        self.assertNotIn("https://example.com", logged)
+        self.assertIn(secret, logged)
+        self.assertIn("https://example.com", logged)
+        self.assertIn("Command:", logged)
+        self.assertIn("Traceback (most recent call last)", logged)
 
     async def test_delay_helper_propagates_external_cancellation(self):
         report = mock.AsyncMock()

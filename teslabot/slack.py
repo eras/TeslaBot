@@ -88,6 +88,7 @@ class SlackControl(control.Control):
                 json={}
             ))
             if result["ok"]:
+                logger.debug("result: %s", result)
                 ids = [channel["id"] for channel in result["channels"] if f"#{channel['name']}" == self._channel_name]
                 if ids:
                     self._channel_id = ids[0]
@@ -107,7 +108,7 @@ class SlackControl(control.Control):
                 await self._ws_handler()
                 raise control.ControlException("Slack worker returned unexpectedly")
             except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
-                logger.warning("Slack connection lost; retrying in 5 seconds")
+                logger.warning("Slack connection lost; retrying in 5 seconds", exc_info=True)
                 await asyncio.sleep(5)
 
     async def close(self) -> None:
@@ -149,15 +150,16 @@ class SlackControl(control.Control):
                                     break
                                 got_messages = True
                                 json_message = json.loads(message.data)
+                                logger.info("json_message: %s", json_message)
                                 try:
                                     envelope_id = json_message.get("envelope_id")
                                 except Exception as exn:
-                                    logger.error("Slack envelope failed")
+                                    logger.exception("Slack envelope failed: %s", json_message)
                                     raise exn
                                 # ack first, handle later, so we don't end up reprocessing crashing commands..
                                 if envelope_id is not None:
                                     ack = {"envelope_id": envelope_id}
-                                    logger.debug("Acknowledging Slack envelope")
+                                    logger.debug("acking with %s", ack)
                                     await session.send_json(ack)
                                     logger.debug(f"acked")
                                 await self._process_event(json_message.get("payload", {}).get("event", {}))
@@ -171,11 +173,11 @@ class SlackControl(control.Control):
                             num_retries += 1
                     except aiohttp.WSServerHandshakeError as exn:
                         if exn.status == 408:
-                            logger.error("Slack handshake timeout; reconnecting")
+                            logger.exception("Slack handshake timeout; reconnecting")
                             continue
                         raise exn
         except Exception as exn:
-            logger.error("Slack worker failed: %s", type(exn).__name__)
+            logger.exception("Slack worker failed")
             raise exn
 
     async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
@@ -188,6 +190,8 @@ class SlackControl(control.Control):
                 event.get("subtype") is None and channel is not None and
                 channel in (self._channel_id, self._admin_channel_id)):
             await self.process_message(CommandContext(admin_room=channel == self._admin_channel_id, control=self), text)
+        else:
+            logger.debug("Not processing Slack event as a command: %s", event)
 
     async def send_message(self,
                            message_context: control.MessageContext,
@@ -196,6 +200,7 @@ class SlackControl(control.Control):
         channel = self._admin_channel_id if message_context.admin_room else self._channel_id
         if not channel:
             raise control.MessageSendError("Slack destination unavailable")
+        logger.info("Sending Slack message to %s: %s", channel, message)
         try:
             response = await assert_future(self._client.api_call(
                 api_method="chat.postMessage",
@@ -203,9 +208,10 @@ class SlackControl(control.Control):
                       "text": message}
             ))
         except SlackApiError as exn:
+            logger.exception("Slack message delivery failed: channel %s, message %s", channel, message)
             assert exn.response["ok"] is False
             error = exn.response["error"] # str like 'invalid_auth', 'channel_not_found'
             raise control.MessageSendError(error) from exn
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            raise control.MessageSendError("Slack delivery unavailable") from None
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exn:
+            raise control.MessageSendError(f"Slack delivery unavailable: {exn}") from exn
         pass

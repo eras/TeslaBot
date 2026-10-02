@@ -116,7 +116,8 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(healthy.stopped)
             self.assertIn("Test car", self.chat.messages[-1][1])
             self.assertEqual(self.adapter.products, 2)
-            self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("Traceback (most recent call last)", "\n".join(logs.output))
 
     async def test_exhausted_chat_and_mqtt_retries_keep_healthy_adapters_alive(self):
         self.adapter.failures = -1
@@ -154,7 +155,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
             self.adapter.failures = 0
             await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
             self.assertIn("Test car", self.chat.messages[-1][1])
-            self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
             runtime.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await runtime
@@ -194,7 +195,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.adapter.products, 16)
             await self.sleep(0.01)
             self.assertEqual(self.adapter.products, 16)
-            self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
             runtime.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await runtime
@@ -236,7 +237,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mqtt.vehicles, {})
             self.assertEqual(self.adapter.products, 15)
             self.assertFalse(any(payload == "online" for client in clients for _, payload in client.publications))
-            self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
             runtime.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await runtime
@@ -258,7 +259,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
                 await multi.run()
         self.assertTrue(self.chat.stopped)
         mqtt._wait_retry.assert_not_awaited()
-        self.assertNotIn("SECRET_SENTINEL", "\n".join(logs.output))
+        self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
         with self.assertRaises(RuntimeError):
             await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
         await mqtt.close()

@@ -132,7 +132,7 @@ class MqttControl(control.Control):
                 if self._current():
                     await self._publish_snapshot(client, snapshot)
         except Exception as exn:
-            logger.warning("MQTT operation failed: %s", type(exn).__name__)
+            logger.warning("MQTT %s for %s failed: %s", action_topic, vehicle_id, exn, exc_info=True)
             if result is None and self._current():
                 result = ActionResult(vehicle_id, action_topic[:-4], payload, False, type(exn).__name__)
                 await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
@@ -239,6 +239,6 @@ class MqttControl(control.Control):
             except Exception as exn:
                 if not isinstance(exn, aiomqtt.MqttError) and not is_transient_error(exn):
                     raise
-                logger.warning("MQTT reconciliation interrupted: %s; retrying in %.0f seconds", type(exn).__name__, retry_delay)
+                logger.warning("MQTT reconciliation interrupted: %s: %s; retrying in %.0f seconds", type(exn).__name__, exn, retry_delay, exc_info=True)
                 await self._wait_retry(retry_delay)
                 retry_delay = min(60.0, retry_delay * 2)

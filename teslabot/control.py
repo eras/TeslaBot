@@ -45,7 +45,7 @@ class DefaultControlCallback(ControlCallback):
     async def command_callback(self,
                                command_context: CommandContext,
                                invocation: commands.Invocation) -> None:
-        logger.warning("No application callback installed")
+        logger.warning("No application callback installed: %s, %s %s", command_context, invocation.name, invocation.args)
 
 class Control(ABC):
     run_scheduled_commands = True
@@ -92,7 +92,8 @@ class Control(ABC):
     async def process_message(self, command_context: CommandContext, message: str) -> None:
         has_bang = bool(re.match(r"^!", message))
         if not self.require_bang or has_bang:
-            logger.info("Command received")
+            logged_message = re.sub(r"^(!?authorize)\s+.*$", r"\1 [redacted]", message)
+            logger.info("< %s", logged_message)
             try:
                 try:
                     invocation = commands.Invocation.parse(message[1:] if has_bang else message)
@@ -103,7 +104,7 @@ class Control(ABC):
                 except commands.InvocationEmptyError as exn:
                     logger.debug("Ignoring empty message (or completely commented)")
                 except commands.CommandParseError as exn:
-                    logger.error("Command parse failed")
+                    logger.exception("%s: Failed to parse command: %s", command_context.txn, message)
                     def format(word: str, highlight: bool) -> str:
                         if highlight:
                             return f"_{word}_"
@@ -113,13 +114,13 @@ class Control(ABC):
                     await self.send_message(command_context.to_message_context(),
                                             f"{command_context.txn}\n{exn.args[0]}\n{' '.join(marked)}")
                 except commands.ParseError as exn:
-                    logger.error("Command parse failed")
+                    logger.exception("%s: Failed to parse command: %s", command_context.txn, message)
                     await self.send_message(command_context.to_message_context(),
                                             f"{command_context.txn}\n{exn}")
             except (MessageSendError, asyncio.TimeoutError):
-                logger.warning("Command response dropped: %s", type(self).__name__)
+                logger.warning("%s: Command response dropped: %s", command_context.txn, type(self).__name__, exc_info=True)
             except Exception as exn:
-                logger.error("Command callback failed: %s", type(exn).__name__)
+                logger.exception("%s: Command callback failed: %s", command_context.txn, message)
                 raise
 
     @abstractmethod
@@ -179,7 +180,7 @@ class MultiControl(Control):
             try:
                 await asyncio.wait_for(child.send_message(message_context, message), 10)
             except Exception:
-                logger.warning("Chat notification dropped: %s", type(child).__name__)
+                logger.warning("Chat notification dropped: %s, context %s, message %s", type(child).__name__, message_context, message, exc_info=True)
         await asyncio.gather(*(send(child) for child in self.children if child.run_scheduled_commands))
 
     async def run(self) -> None:
@@ -189,7 +190,7 @@ class MultiControl(Control):
                 logger.info("Adapter initialized: %s", type(child).__name__)
                 await child.run()
             except Exception as exn:
-                logger.error("Adapter failed: %s (%s)", type(child).__name__, type(exn).__name__)
+                logger.exception("Adapter failed: %s", type(child).__name__)
                 raise
             logger.error("Adapter returned unexpectedly: %s", type(child).__name__)
             raise ControlException("Adapter returned unexpectedly: " + type(child).__name__)
@@ -207,4 +208,4 @@ class MultiControl(Control):
         results = await asyncio.gather(*(child.close() for child in self.children), return_exceptions=True)
         for child, result in zip(self.children, results):
             if isinstance(result, BaseException):
-                logger.error("Adapter cleanup failed: %s (%s)", type(child).__name__, type(result).__name__)
+                logger.error("Adapter cleanup failed: %s", type(child).__name__, exc_info=(type(result), result, result.__traceback__))

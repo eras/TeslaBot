@@ -111,6 +111,7 @@ class MatrixControl(control.Control):
             logger.debug(f"Logging in")
             login = await self._client.login(mx_config["password"])
             if isinstance(login, LoginError):
+                logger.error("Matrix login failed: %s", login)
                 raise control.ConfigError("Matrix login failed")
             elif isinstance(login, LoginResponse):
                 self._logged_in = True
@@ -122,12 +123,13 @@ class MatrixControl(control.Control):
                            message: str) -> None:
         room_id = self._admin_room_id if message_context.admin_room else self._room_id
         if room_id is None:
+            logger.error("No room id known, cannot send %s", message)
             raise control.MessageSendError("Matrix destination unavailable")
         else:
             logger.debug(f"send_message wait ready start")
             await asyncio.wait_for(self.wait_ready(), 10)
             logger.debug(f"send_message wait ready done")
-            logger.info("Sending Matrix message")
+            logger.info("> %s", message)
             try:
                 response = await self._client.room_send(
                     room_id=room_id,
@@ -137,32 +139,33 @@ class MatrixControl(control.Control):
                         "body": message
                     })
                 if not hasattr(response, "event_id"):
-                    raise control.MessageSendError("Matrix send failed")
+                    raise control.MessageSendError(f"Matrix send failed: {response}")
             except OlmUnverifiedDeviceError as err:
-                raise control.MessageSendError("Matrix verification failed") from None
-            except (aiohttp.ClientError, asyncio.TimeoutError):
-                raise control.MessageSendError("Matrix delivery unavailable") from None
+                logger.exception("Cannot send Matrix message to %s due to verification error: %s; device %s", room_id, err, err.device)
+                raise control.MessageSendError(f"Matrix verification failed: {err}") from err
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exn:
+                raise control.MessageSendError(f"Matrix delivery unavailable: {exn}") from exn
 
     async def _invite_callback(self, room: MatrixRoom, event: Event) -> None:
         assert isinstance(event, InviteEvent)
         if self._admin_room_id is None:
-            logger.debug("Joining Matrix admin room")
+            logger.debug("invite callback to %s event %s: joining to admin room", room, event)
             await self._client.join(room.room_id)
             self._admin_room_id = room.room_id
             await self._state.save()
-            logger.info("Matrix admin room admitted; encrypted: %s", room.encrypted)
+            logger.info("Room %s is encrypted: %s", room.name, room.encrypted)
             if self._init_done.is_set():
                 await self.send_message(control.MessageContext(admin_room=True), "This is the admin room. Invite to another room or use !sameroom to set this to be the control room as well.")
         elif self._room_id is None:
-            logger.debug("Joining Matrix control room")
+            logger.debug("invite callback to %s event %s: joining to control room", room, event)
             await self._client.join(room.room_id)
             self._room_id = room.room_id
             await self._state.save()
-            logger.info("Matrix control room admitted; encrypted: %s", room.encrypted)
+            logger.info("Room %s is encrypted: %s", room.name, room.encrypted)
             if self._init_done.is_set():
                 await self.send_message(control.MessageContext(admin_room=False), "This is the control room.")
         else:
-            logger.debug("Ignoring Matrix invitation")
+            logger.debug("invite callback to %s event %s: not joining, we are already in %s", room, event, self._room_id)
 
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
         if self._init_done.is_set():

@@ -309,7 +309,7 @@ class AppScheduler(Generic[T]):
         try:
             await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
         except Exception:
-            logger.warning("Timer notification dropped")
+            logger.warning("Timer %s notification dropped: %s", info.id, command, exc_info=True)
         assert self._commands
         invocation = c.Invocation(name=command[0], args=command[1:])
         try:
@@ -317,17 +317,17 @@ class AppScheduler(Generic[T]):
         except (c.CommandsException, requests.exceptions.RequestException,
                 teslapy.VehicleError, oauthlib.oauth2.OAuth2Error,
                 urllib.error.HTTPError, urllib3.exceptions.ProtocolError) as exn:
-            logger.error("Timer command failed: %s", type(exn).__name__)
+            logger.exception("%s: Timer %s command %s failed: %s", context.txn, info.id, command, exn)
             # One-shot timers are consumed; recurring timers retain their next
             # activation so temporary auth/vehicle failures do not delete them.
             try:
                 await self.control.send_message(context.to_message_context(),
                                                 f"Timer {info.id} request failed; later timers remain active")
             except (control.MessageSendError, asyncio.TimeoutError):
-                logger.warning("Timer error notification dropped")
+                logger.warning("Timer %s error notification dropped", info.id, exc_info=True)
         except (control.MessageSendError, asyncio.TimeoutError):
-            logger.warning("Timer response dropped")
+            logger.warning("Timer %s response dropped", info.id, exc_info=True)
         try:
             await self._command_ls(context, ())
         except (control.MessageSendError, asyncio.TimeoutError):
-            logger.warning("Timer status notification dropped")
+            logger.warning("Timer %s status notification dropped", info.id, exc_info=True)

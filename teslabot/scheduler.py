@@ -212,12 +212,12 @@ class Scheduler(Generic[Context]):
                     except asyncio.CancelledError:
                         raise
                     except:
-                        logger.error("Scheduler callback failed")
+                        logger.exception("Scheduler callback failed: %s", next_entry)
                         raise
         except asyncio.CancelledError:
             raise
         except:
-            logger.error("Scheduler worker failed")
+            logger.exception("Scheduler worker failed")
             raise
 
     async def get_entries(self) -> List[Entry[Context]]:

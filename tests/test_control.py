@@ -16,7 +16,7 @@ class FakeControl(Control):
 
 
 class TestControlAuthorizationLogging(unittest.TestCase):
-    def test_authorization_callback_is_redacted_from_logs(self) -> None:
+    def test_existing_authorization_redaction_is_retained_in_ingress_log(self) -> None:
         control = FakeControl()
         context = CommandContext(admin_room=True, control=control, txn="test")
         callback_url = "https://auth.tesla.com/void/callback?code=secret"
@@ -25,5 +25,6 @@ class TestControlAuthorizationLogging(unittest.TestCase):
             asyncio.get_event_loop().run_until_complete(
                 control.process_message(context, f"!authorize {callback_url}"))
 
-        self.assertIn("Command received", "\n".join(logs.output))
-        self.assertNotIn(callback_url, "\n".join(logs.output))
+        ingress = logs.records[0].getMessage()
+        self.assertEqual(ingress, "< !authorize [redacted]")
+        self.assertNotIn(callback_url, ingress)

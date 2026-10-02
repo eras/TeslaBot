@@ -694,7 +694,7 @@ class App(ControlCallback):
         self, command_context: CommandContext, invocation: Invocation
     ) -> None:
         """ControlCallback"""
-        logger.debug("Application command received")
+        logger.debug("command_callback(%s)", invocation.name)
         if self._commands.has_command(invocation.name):
             try:
                 await self._commands.invoke(command_context, invocation)
@@ -703,14 +703,14 @@ class App(ControlCallback):
             except (AppException, teslapy.VehicleError, RequestsHTTPError, HTTPError,
                     requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError,
                     ConnectionError, ProtocolError, OAuth2Error) as exn:
-                logger.error("Application command failed: %s", type(exn).__name__)
+                logger.exception("%s: Application command %s failed: %s", command_context.txn, invocation.name, exn)
                 await self.control.send_message(
                     command_context.to_message_context(), str(exn) if isinstance(exn, AppException) else "Tesla request failed; please retry"
                 )
             except commands.CommandsException as exn:
                 raise exn
             except Exception as exn:
-                logger.error("Application command failed: %s", type(exn).__name__)
+                logger.exception("%s: Application command %s failed: %s", command_context.txn, invocation.name, exn)
                 raise
         else:
             await self.control.send_message(
@@ -840,7 +840,7 @@ class App(ControlCallback):
                         try:
                             await self._get_vehicle_list()
                         except Exception:
-                            logger.warning("Authorized vehicle enumeration unavailable")
+                            logger.warning("Authorized vehicle enumeration unavailable", exc_info=True)
                 await self.control.send_message(
                     context.to_message_context(), "Authorization successful" if self.authorized else "Authorization unavailable; please authorize again"
                 )
@@ -874,8 +874,8 @@ class App(ControlCallback):
                 try:
                     url = await to_async(call)
                 except (OSError, OAuth2Error, AppException, ProtocolError) as exn:
-                    logger.warning("Authorization initialization failed: %s", type(exn).__name__)
-                    raise AppException("Unable to start authorization; check credential storage/connectivity and retry !authorize") from None
+                    logger.warning("Authorization initialization failed: %s", exn, exc_info=True)
+                    raise AppException("Unable to start authorization; check credential storage/connectivity and retry !authorize") from exn
                 return url if generation == self.auth_generation and not self.authorized else None
 
     async def _get_vehicle_list(self) -> List[Any]:
@@ -925,7 +925,7 @@ class App(ControlCallback):
             else:
                 raise ArgException(f"No vehicle found")
         else:
-            logger.debug("Vehicle selected")
+            logger.debug("vehicle=%s", vehicles[0])
             return vehicles[0]
 
     async def _get_vehicle_by_id(self, vehicle_id: str) -> teslapy.Vehicle:
@@ -1056,6 +1056,7 @@ class App(ControlCallback):
             return ActionResult(self._vehicle_id(vehicle), action,
                                 requested_value, True)
         except (AppException, teslapy.VehicleError, HTTPError, ProtocolError, ConnectionError) as exn:
+            logger.exception("Vehicle action %s for %s failed: requested %s", action, vehicle_id or vehicle_name, requested_value)
             return ActionResult(vehicle_id or "", action, requested_value, False, type(exn).__name__)
 
     async def set_ac(
@@ -1094,7 +1095,7 @@ class App(ControlCallback):
             # refresh cache for parsers etc
             await self._get_vehicle_list()
 
-            logger.debug("Vehicle data received")
+            logger.debug("data: %s", data)
             dist_hr_unit = data["gui_settings"]["gui_distance_units"]
             dist_unit = assert_some(
                 re.match(r"^[^/]*", dist_hr_unit),
@@ -1359,23 +1360,23 @@ class App(ControlCallback):
                 error = None
                 break
             except teslapy.VehicleError as exn:
-                logger.debug("Vehicle request failed")
+                logger.debug("Vehicle error: %s", exn, exc_info=True)
                 error = exn
                 if exn.args[0] != "could_not_wake_buses":
                     break
             except HTTPError as exn:
-                logger.debug("HTTP request failed")
+                logger.debug("HTTP error: %s", exn, exc_info=True)
                 error = exn
             except (RequestsHTTPError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as exn:
                 if not is_transient_error(exn):
                     raise
-                logger.debug("Transient Tesla request failed")
+                logger.debug("Transient Tesla request failed: %s", exn, exc_info=True)
                 error = exn
             except ProtocolError as exn:
-                logger.debug("HTTP protocol failed")
+                logger.debug("HTTP protocol error: %s", exn, exc_info=True)
                 error = exn
             except ConnectionError as exn:
-                logger.debug("HTTP connection failed")
+                logger.debug("HTTP connection error: %s", exn, exc_info=True)
                 error = exn
             finally:
                 logger.debug(f"Retry round complete")
@@ -1475,7 +1476,7 @@ class App(ControlCallback):
             )
             return None
         except Exception as exn:
-            logger.error("Vehicle operation failed: %s", type(exn).__name__)
+            logger.exception("%s: Vehicle operation failed: %s", context.txn, exn)
             await self.control.send_message(
                 context.to_message_context(), f"{context.txn} Exception :("
             )
@@ -1510,7 +1511,7 @@ class App(ControlCallback):
             try:
                 await self._get_vehicle_list()
             except Exception:
-                logger.warning("Startup vehicle enumeration unavailable")
+                logger.warning("Startup vehicle enumeration unavailable", exc_info=True)
 
     async def run(self) -> None:
         if self.control.run_scheduled_commands:
@@ -1528,7 +1529,7 @@ class App(ControlCallback):
                         f'Not authorized. Authorization URL: {authorization_url} "Page Not Found" will be shown at success. Use !authorize https://the/url/you/ended/up/at',
                     )
             except (AppException, MessageSendError, asyncio.TimeoutError):
-                logger.warning("Startup authorization notice dropped")
+                logger.warning("Startup authorization notice dropped", exc_info=True)
         if self.control.run_scheduled_commands:
             assert self._scheduler._scheduler._task is not None
             await self._scheduler._scheduler._task

@@ -184,7 +184,9 @@ credentials are cleared before creating a fresh authorization URL; failure
 to initialize that flow gives an actionable error rather than a `None` URL.
 Startup authorization notices are optional and skipped when superseded by an
 auth-generation change. Default application INFO logs show selected controls,
-chat readiness, and MQTT reconciliation/readiness without SDK payload logging.
+chat readiness, and MQTT reconciliation/readiness. Diagnostic logs retain
+command payloads, vehicle data, SDK output, exception details, and tracebacks;
+they may contain sensitive information and should be stored and shared accordingly.
 
 ## Setup with Docker
 

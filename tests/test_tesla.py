@@ -222,9 +222,11 @@ class TestTeslaAuthorization(unittest.TestCase):
         ), mock.patch.object(
             self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])
         ):
-            asyncio.get_event_loop().run_until_complete(
-                self.app._command_info(self.admin_context, ((None, None), ()))
-            )
+            with self.assertLogs("teslabot.tesla", "DEBUG") as logs:
+                asyncio.get_event_loop().run_until_complete(
+                    self.app._command_info(self.admin_context, ((None, None), ()))
+                )
+            self.assertIn(f"data: {data}", "\n".join(logs.output))
 
         self.assertIn("Climate: on Target: 20°C / 21°C", self.control.messages[-1][1])
 
