@@ -414,6 +414,10 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_matrix_child_failure_cancels_other_child_and_closes(self):
         matrix = MatrixControl.__new__(MatrixControl)
+        matrix._send_tasks = {}
+        matrix._delivery_lock = asyncio.Lock()
+        matrix._close_task = None
+        matrix._closed = False
         matrix._logged_in = True
         matrix._sync_token = None
         matrix._client = mock.Mock()

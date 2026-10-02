@@ -251,6 +251,10 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
                 await adapter._process_event({"channel": "normal", "text": text})
         else:
             adapter = MatrixControl.__new__(MatrixControl)
+            adapter._send_tasks = {}
+            adapter._delivery_lock = asyncio.Lock()
+            adapter._close_task = None
+            adapter._closed = False
             control.Control.__init__(adapter)
             adapter._room_id, adapter._admin_room_id = "normal", "admin"
             adapter._init_done = asyncio.Event()

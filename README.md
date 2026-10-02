@@ -101,12 +101,33 @@ room role, including authorization links and delayed wake notices. Slack
 accepts human commands only from its configured normal and admin channels.
 Local commands (`ping`, Matrix `sameroom`) remain local. `require_bang` is
 shared immediately and restored before ingress starts. Startup and timer
-notifications fan out only to chats, independently with a ten-second send
-bound; unsuccessful notices are dropped, not queued or rerouted. A failed
+notifications fan out only to chats, independently with finite send bounds;
+unsuccessful notices are dropped, not queued or rerouted. Other chat adapters
+retain a ten-second composite bound. Matrix uses separate `[matrix]`
+`readiness_timeout` and `send_timeout` budgets, each defaulting to 120 seconds.
+Both accept positive finite seconds (including fractions); zero, negative,
+nonfinite, and nonnumeric values fail startup. Waiting for initial sync does
+not consume the encrypted delivery budget, which includes key claims/sharing
+and HTTP work. Direct/local and composite Matrix sends use the same limits;
+the composite does not impose a shorter Matrix deadline. Healthy siblings
+receive broadcasts immediately and continue serving while Matrix waits. The
+broadcast caller, including a timer, waits for these finite sequential phase
+limits and cancellation cleanup before proceeding. Shutdown cancels and awaits
+pending Matrix sends before closing its client. Timed-out messages are not automatically resent:
+delivery may already have reached the server. Encryption, device verification,
+trust configuration, and existing SDK session warnings are unchanged. A failed
 interactive reply never falls back to another destination. `info delta`
 history is per adapter and room role and advances only after a successful
 send. Scheduled info always sends full output and does not advance chat
 delta histories.
+
+Matrix serializes SDK delivery calls; queueing for that critical section is
+included in the send budget. If this adapter interrupts key claiming, it
+releases only the sharing event created by that owned call after HTTP work
+has drained, allowing a new explicit send to prepare keys normally. Other
+senders' sharing events are not removed or signalled. Caller cancellation and
+close signal cancellation once, then await actual SDK cleanup even if callers
+are cancelled repeatedly. Concurrent close calls join one client-close operation.
 
 Mixed mode can start without Tesla authorization: MQTT stays offline while
 an admin authorizes through either chat. Auth changes notify MQTT without
