@@ -25,5 +25,5 @@ class TestControlAuthorizationLogging(unittest.TestCase):
             asyncio.get_event_loop().run_until_complete(
                 control.process_message(context, f"!authorize {callback_url}"))
 
-        self.assertIn("!authorize [redacted]", "\n".join(logs.output))
+        self.assertIn("Command received", "\n".join(logs.output))
         self.assertNotIn(callback_url, "\n".join(logs.output))

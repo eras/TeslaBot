@@ -44,10 +44,16 @@ class FakeTesla:
         self.logout_calls += 1
         self.authorized = False
 
+    def vehicle_list(self):
+        return []
+
+    def close(self):
+        pass
+
 
 class TestTeslaAuthorization(unittest.TestCase):
     def setUp(self) -> None:
-        self.tesla_class = mock.patch("teslabot.tesla.teslapy.Tesla", FakeTesla)
+        self.tesla_class = mock.patch("teslabot.tesla.TeslaSession", FakeTesla)
         self.tesla_class.start()
         self.addCleanup(self.tesla_class.stop)
         config = Config("test.ini", {
@@ -164,7 +170,7 @@ class TestTeslaAuthorization(unittest.TestCase):
         with mock.patch.object(self.app._scheduler, "start", new=mock.AsyncMock()) as start, \
              mock.patch.object(self.app, "_load_state", new=mock.AsyncMock()), \
              mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock()):
-            asyncio.get_event_loop().run_until_complete(self.app.run())
+            asyncio.get_event_loop().run_until_complete(self.app.initialize())
             start.assert_not_awaited()
 
     def test_info_shows_climate_state_and_target_temperatures(self) -> None:
@@ -248,3 +254,18 @@ class TestTeslaAuthorization(unittest.TestCase):
 
         self.assertIn("Climate: on Target: 68°F", self.control.messages[-1][1])
         self.assertNotIn("68°F /", self.control.messages[-1][1])
+
+        # A different adapter/room has not received the other destination's data.
+        other = FakeControl()
+        contexts = [CommandContext(True, other), CommandContext(False, self.control),
+                    CommandContext(False, self.control, scheduled=True)]
+        with mock.patch.object(self.app, "_execute_vehicle", new=mock.AsyncMock(return_value=({"display_name": "Test vehicle", "vin": "VIN1"}, data))), \
+             mock.patch.object(self.app, "_get_vehicle_list", new=mock.AsyncMock(return_value=[])):
+            for context in contexts:
+                asyncio.get_event_loop().run_until_complete(self.app._command_info(context, (("delta", None), ())))
+                self.assertIn("Climate: on", self.control.messages[-1][1])
+            before = dict(self.app._prev_info)
+            with mock.patch.object(self.control, "send_message", new=mock.AsyncMock(side_effect=RuntimeError("offline"))):
+                with self.assertRaises(RuntimeError):
+                    asyncio.get_event_loop().run_until_complete(self.app._command_info(CommandContext(False, other), (("delta", None), ())))
+            self.assertEqual(before, self.app._prev_info)

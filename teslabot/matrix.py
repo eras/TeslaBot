@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 import re
 import os
 import errno
@@ -65,6 +66,8 @@ class MatrixControl(control.Control):
         self._pending_event_handlers = []
 
         self._state.add_element(StateSave(self))
+        if not self._state.has_section("matrix"):
+            self._state["matrix"] = {}
         self._client = AsyncClient(self._config.get("matrix", "homeserver"),
                                    self._config.get("matrix", "mxid"),
                                    store_path=store_path)
@@ -97,8 +100,7 @@ class MatrixControl(control.Control):
         mx_config = self._config["matrix"] if self._config.has_section("matrix") else None
         mx_state = self._state["matrix"] if self._state.has_section("matrix") else None
         if mx_config is None:
-            logger.error(f"Cannot setup matrix due to missing configuration")
-            return
+            raise control.ConfigError("Matrix configuration missing")
         if mx_state is not None and mx_state.has_key("access_token") and mx_state["access_token"] != "":
             self._logged_in = True
             logger.debug(f"Using pre-existing credentials")
@@ -109,7 +111,7 @@ class MatrixControl(control.Control):
             logger.debug(f"Logging in")
             login = await self._client.login(mx_config["password"])
             if isinstance(login, LoginError):
-                logger.error(f"Failed to log in")
+                raise control.ConfigError("Matrix login failed")
             elif isinstance(login, LoginResponse):
                 self._logged_in = True
                 logger.info(f"Login successful")
@@ -120,45 +122,47 @@ class MatrixControl(control.Control):
                            message: str) -> None:
         room_id = self._admin_room_id if message_context.admin_room else self._room_id
         if room_id is None:
-            logger.error(f"No room id known, cannot send \"{message}\"")
+            raise control.MessageSendError("Matrix destination unavailable")
         else:
             logger.debug(f"send_message wait ready start")
-            await self.wait_ready()
+            await asyncio.wait_for(self.wait_ready(), 10)
             logger.debug(f"send_message wait ready done")
-            logger.info(f"> {message}")
+            logger.info("Sending Matrix message")
             try:
-                await self._client.room_send(
+                response = await self._client.room_send(
                     room_id=room_id,
                     message_type="m.room.message",
                     content = {
                         "msgtype": "m.notice", # or m.text
                         "body": message
                     })
+                if not hasattr(response, "event_id"):
+                    raise control.MessageSendError("Matrix send failed")
             except OlmUnverifiedDeviceError as err:
-                logger.error(f"Cannot send message due to verification error: {err}")
-                # logger.info(f"These are all known devices:")
-                # device_store: crypto.DeviceStore = device_store
-                # [logger.info(f"\t{device.user_id}\t {device.device_id}\t {device.trust_state}\t  {device.display_name}") for device in device_store]
-                pass
+                raise control.MessageSendError("Matrix verification failed") from None
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                raise control.MessageSendError("Matrix delivery unavailable") from None
 
     async def _invite_callback(self, room: MatrixRoom, event: Event) -> None:
         assert isinstance(event, InviteEvent)
         if self._admin_room_id is None:
-            logger.debug(f"invite callback to {room} event {event}: joining to admin room")
+            logger.debug("Joining Matrix admin room")
             await self._client.join(room.room_id)
             self._admin_room_id = room.room_id
             await self._state.save()
-            logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
-            await self.send_message(control.MessageContext(admin_room=True), "This is the admin room. Invite to another room or use !sameroom to set this to be the control room as well.")
+            logger.info("Matrix admin room admitted; encrypted: %s", room.encrypted)
+            if self._init_done.is_set():
+                await self.send_message(control.MessageContext(admin_room=True), "This is the admin room. Invite to another room or use !sameroom to set this to be the control room as well.")
         elif self._room_id is None:
-            logger.debug(f"invite callback to {room} event {event}: joining to control room")
+            logger.debug("Joining Matrix control room")
             await self._client.join(room.room_id)
             self._room_id = room.room_id
             await self._state.save()
-            logger.info(f"Room {room.name} is encrypted: {room.encrypted}")
-            await self.send_message(control.MessageContext(admin_room=False), "This is the control room.")
+            logger.info("Matrix control room admitted; encrypted: %s", room.encrypted)
+            if self._init_done.is_set():
+                await self.send_message(control.MessageContext(admin_room=False), "This is the control room.")
         else:
-            logger.debug(f"invite callback to {room} event {event}: not joining, we are already in {self._room_id}")
+            logger.debug("Ignoring Matrix invitation")
 
     async def _message_callback(self, room: MatrixRoom, event: Event) -> None:
         if self._init_done.is_set():
@@ -208,6 +212,7 @@ class MatrixControl(control.Control):
                 # TODO: implement proper verification, trusting just mxids in particular is not safe
                 self.trust_devices(mxid)
             self._init_done.set()
+            logger.info("Matrix ready")
             for pending in self._pending_event_handlers:
                 await pending()
             self._pending_event_handlers = []
@@ -215,9 +220,18 @@ class MatrixControl(control.Control):
         after_first_sync_task = asyncio.ensure_future(after_first_sync())
         sync_forever_task = asyncio.ensure_future(self._client.sync_forever(timeout=30000, since=self._sync_token, full_state=True))
         logger.info(f"Sync starts")
-        await asyncio.gather(
-            # The order here IS significant! You have to register the task to trust
-            # devices FIRST since it awaits the first sync
-            after_first_sync_task,
-            sync_forever_task
-        )
+        try:
+            done, _ = await asyncio.wait([after_first_sync_task, sync_forever_task], return_when=asyncio.FIRST_COMPLETED)
+            if after_first_sync_task in done:
+                await after_first_sync_task
+                await sync_forever_task
+            else:
+                await sync_forever_task
+                raise control.ControlException("Matrix sync returned unexpectedly")
+        finally:
+            after_first_sync_task.cancel()
+            sync_forever_task.cancel()
+            await asyncio.gather(after_first_sync_task, sync_forever_task, return_exceptions=True)
+
+    async def close(self) -> None:
+        await self._client.close()

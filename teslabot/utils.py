@@ -29,34 +29,15 @@ def indent(by: int, string: str) -> str:
 async def call_with_delay_info(delay_sec: float,
                                report: Callable[[], Awaitable[None]],
                                task: Awaitable[T]) -> T:
-    result: List[T] = []
-    exn: List[Exception] = []
     async def delayed() -> None:
-        try:
-            await asyncio.sleep(delay_sec)
-            await report()
-        except Exception as exn:
-            report_task.cancel()
-            raise exn
-    async def invoke() -> None:
-        try:
-            result.append(await task);
-            report_task.cancel()
-        except Exception as exn2:
-            exn.append(exn2)
-            report_task.cancel()
+        await asyncio.sleep(delay_sec)
+        await report()
     report_task = asyncio.create_task(delayed())
-    invoke_task = asyncio.create_task(invoke())
     try:
-        await asyncio.gather(invoke_task,
-                             report_task)
-    except asyncio.CancelledError:
-        # risen if invoke cancels delayed
-        pass
-    if exn:
-        raise exn[0]
-    else:
-        return result[0]
+        return await task
+    finally:
+        report_task.cancel()
+        await asyncio.gather(report_task, return_exceptions=True)
 
 def coalesce(*xs: Optional[T]) -> T:
     """Return the first non-None value from the list; there must be at least one"""

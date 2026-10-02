@@ -87,9 +87,33 @@ works, run `!logout` and start this flow again.
 
 ## MQTT and Home Assistant
 
-Install `TeslaBot[mqtt]` (the Docker image includes it). First authorize
-Tesla through Matrix or Slack using the same credential store, then set
-`common.control = mqtt` and configure `[mqtt]` as in `config.ini.example`.
+Install `TeslaBot[mqtt]` (the Docker image includes it), plus the extras for
+each selected chat adapter. Set `common.control = matrix,mqtt`,
+`slack,mqtt`, or `matrix,slack,mqtt` and configure those sections as in
+`config.ini.example`. Names are strictly lowercase; surrounding whitespace
+is trimmed. Empty components, duplicate names, and unknown names fail startup
+before clients are constructed. Existing single names work unchanged and an
+absent setting still defaults to `slack`.
+
+All adapters share one Tesla session, application, persisted settings, and
+scheduler. Interactive replies stay on the admitted adapter and admin/normal
+room role, including authorization links and delayed wake notices. Slack
+accepts human commands only from its configured normal and admin channels.
+Local commands (`ping`, Matrix `sameroom`) remain local. `require_bang` is
+shared immediately and restored before ingress starts. Startup and timer
+notifications fan out only to chats, independently with a ten-second send
+bound; unsuccessful notices are dropped, not queued or rerouted. A failed
+interactive reply never falls back to another destination. `info delta`
+history is per adapter and room role and advances only after a successful
+send. Scheduled info always sends full output and does not advance chat
+delta histories.
+
+Mixed mode can start without Tesla authorization: MQTT stays offline while
+an admin authorizes through either chat. Auth changes notify MQTT without
+waiting for the broker. MQTT becomes online only after the latest generation's
+vehicle enumeration, discovery, and subscriptions are ready. MQTT-only
+(`common.control = mqtt`) requires cached authorization and otherwise exits
+nonzero with a diagnostic. MQTT-only neither runs nor overwrites saved timers.
 MQTT deliberately has no authorization or other admin commands. Use a broker
 account with access limited to the TeslaBot topics; enable TLS when connecting
 to a remote broker.
@@ -116,6 +140,51 @@ the refresh button periodically if desired. Successful adjustments trigger a
 single follow-up read; a failed or delayed read never substitutes the requested
 value for observed state. Old retained readings may be stale after a restart;
 use the last-refresh sensor to assess freshness. Location is not published.
+Chat commands do not automatically update MQTT state.
+
+Discovery ownership is recorded in the configured state store, scoped by
+broker endpoint and topic namespace. Obsolete owned discovery configs and
+retained state are deleted before online, including after restart or logout.
+Keep the state store when restarting; prior versions did not record ownership,
+so pre-existing obsolete discovery may require manual removal. Use a distinct
+`mqtt.prefix` per instance: custom prefixes also have distinct discovery IDs.
+The default prefix preserves existing discovery IDs. Only one process may
+own a given broker/topic namespace. Every reconnect uses a clean session;
+retained commands are rejected and old-generation queued work is discarded.
+Changing `override_vehicles` triggers reconciliation without polling.
+
+Tesla operations (selection, wake, request, enumeration, and auth) are
+serialized. An MQTT action and its follow-up refresh are two serialized
+observations, so a chat request may run between them. Logout closes admission
+and invalidates the generation before draining an in-flight request and
+clearing credentials. An already sent blocking request cannot be undone;
+its superseded result is discarded. Failed logout stays fail-closed until
+explicit authorization. Observed OAuth errors or HTTP 401/403 invalidate
+authorization without polling. Failed token exchange stays offline; successful
+exchange commits before response delivery, and initializes the shared vehicle
+cache when enumeration succeeds. Terminal adapter/scheduler failures or
+unexpected returns exit nonzero and clean up owned tasks/sessions. Transient
+MQTT/Slack disconnects retry locally; Matrix uses its native sync retries.
+Interrupted MQTT discovery also retries transient Tesla HTTP 408/429/5xx,
+timeout, and connection failures locally, offline, with backoff capped at
+60 seconds and interrupted by auth changes. Successful discovery is not polled.
+Expected delivery failures drop the response without a second error send or
+fallback; other adapters keep serving. Expected scheduled validation or vehicle
+request failures do not stop the scheduler: one-shot timers are consumed and
+unexpired recurring timers retain their next activation, including across restart.
+Programming or infrastructure failures remain terminal.
+Tesla HTTP sends enforce a 30-second connect/read timeout at the actual SDK
+HTTP boundary, including authorization GET, token exchange, and refresh.
+This is not an absolute wall-clock deadline for DNS, a trickling response,
+redirects, or an entire wake loop. Cancellation drains an already running
+thread asynchronously before releasing the session gate; shutdown may take
+the remaining request/wake duration rather than zero time. Retries and unsent
+work are cancelled on shutdown. Rejected or unsuccessfully logged-out SDK
+credentials are cleared before creating a fresh authorization URL; failure
+to initialize that flow gives an actionable error rather than a `None` URL.
+Startup authorization notices are optional and skipped when superseded by an
+auth-generation change. Default application INFO logs show selected controls,
+chat readiness, and MQTT reconciliation/readiness without SDK payload logging.
 
 ## Setup with Docker
 

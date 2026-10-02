@@ -28,11 +28,15 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.control.vehicles = {"id1": "Test vehicle"}
         self.client = mock.AsyncMock()
         self.app = mock.Mock()
+        self.app.auth_events = []
+        self.app.auth_generation = 0
+        self.app.authorized = True
         self.app.refresh_vehicle = mock.AsyncMock()
         self.app.set_ac = mock.AsyncMock()
         self.app.set_sauna = mock.AsyncMock()
         self.app.set_charge_limit = mock.AsyncMock()
         self.control.set_app(self.app)
+        self.control._generation = 0
         self.snapshot = VehicleSnapshot(
             vehicle_id="id1", display_name="Test vehicle",
             observed_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
@@ -140,6 +144,9 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
                 yield None
 
         client = FakeClient()
+        self.app._get_vehicle_list = mock.AsyncMock(return_value=[{"display_name": "Test vehicle"}])
+        self.app._vehicle_id.return_value = "0123456789abcdef"
+        self.control._state.save = mock.AsyncMock()
         with mock.patch("aiomqtt.Client", return_value=client):
             task = asyncio.create_task(self.control.run())
             await asyncio.wait_for(online.wait(), timeout=2)

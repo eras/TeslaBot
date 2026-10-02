@@ -49,7 +49,7 @@ class Invocation:
         command = assert_some(re.match(r"^[^#]*", message), "This should always match")[0] # extract non-comment part
         fields = [field for field in re.split(r"  *", command) if field != ""]
         if len(fields):
-            logger.debug(f"Command: {fields}")
+            logger.debug("Command parsed")
             return Invocation(name=fields[0],
                               args=fields[1:])
         else:

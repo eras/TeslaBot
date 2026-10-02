@@ -1,11 +1,17 @@
 import datetime
+import asyncio
 import json
 import time
+import requests.exceptions
+import teslapy
+import oauthlib.oauth2
+import urllib.error
+import urllib3.exceptions
 from typing import List, Tuple, Optional, Any, Callable, Awaitable, TypeVar, Generic
 from dataclasses import dataclass
-import traceback
 
 from . import scheduler
+from . import control
 from . import log
 from . import parser as p
 from . import commands as c
@@ -177,8 +183,11 @@ class AppScheduler(Generic[T]):
                 await self._scheduler.add(entry)
 
     async def start(self) -> None:
-        await self._load_state()
+        await self.load()
         await self._scheduler.start()
+
+    async def load(self) -> None:
+        await self._load_state()
         self.state.add_element(AppSchedulerState(self))
 
     async def stop(self) -> None:
@@ -296,14 +305,29 @@ class AppScheduler(Generic[T]):
             and next_time > info.until.timestamp()):
             await self._scheduler.remove(entry)
         await self.state.save()
-        context = CommandContext(admin_room=False, control=self.control)
-        await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
+        context = CommandContext(admin_room=False, control=self.control, scheduled=True)
+        try:
+            await self.control.send_message(context.to_message_context(), f"Timer activated: \"{' '.join(command)}\"")
+        except Exception:
+            logger.warning("Timer notification dropped")
         assert self._commands
         invocation = c.Invocation(name=command[0], args=command[1:])
         try:
             await self._commands.invoke(context, invocation)
-        except Exception as exn:
-            logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
-            await self.control.send_message(context.to_message_context(),
-                                            f"{context.txn} Exception :(")
-        await self._command_ls(context, ())
+        except (c.CommandsException, requests.exceptions.RequestException,
+                teslapy.VehicleError, oauthlib.oauth2.OAuth2Error,
+                urllib.error.HTTPError, urllib3.exceptions.ProtocolError) as exn:
+            logger.error("Timer command failed: %s", type(exn).__name__)
+            # One-shot timers are consumed; recurring timers retain their next
+            # activation so temporary auth/vehicle failures do not delete them.
+            try:
+                await self.control.send_message(context.to_message_context(),
+                                                f"Timer {info.id} request failed; later timers remain active")
+            except (control.MessageSendError, asyncio.TimeoutError):
+                logger.warning("Timer error notification dropped")
+        except (control.MessageSendError, asyncio.TimeoutError):
+            logger.warning("Timer response dropped")
+        try:
+            await self._command_ls(context, ())
+        except (control.MessageSendError, asyncio.TimeoutError):
+            logger.warning("Timer status notification dropped")

@@ -1,7 +1,6 @@
 import asyncio
 from typing import Callable, TypeVar, Generic, Union
 from dataclasses import dataclass
-import concurrent.futures
 T = TypeVar('T', covariant=True)
 
 @dataclass
@@ -17,8 +16,18 @@ async def to_async(fn: Callable[[], T]) -> T:
         except Exception as exn:
             return exn
     loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        value_or_exn = await loop.run_in_executor(pool, call_it)
+    future = loop.run_in_executor(None, call_it)
+    try:
+        value_or_exn = await asyncio.shield(future)
+    except asyncio.CancelledError:
+        # A sent request cannot be undone. Drain it without blocking the loop
+        # before allowing the owner's operation lock to be released.
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                continue
+        raise
     if isinstance(value_or_exn, Value):
         return value_or_exn.value
     else:

@@ -1,6 +1,8 @@
 [common]
 state_file = state.ini
 control = matrix
+# Comma-separated unique lowercase names; e.g. matrix,slack,mqtt.
+# Whitespace is trimmed; empty/duplicate/unknown components fail startup.
 
 [tesla]
 email = user@example.com
@@ -30,11 +32,12 @@ slack_api_secret_id =     <slack api key>
 slack_app_secret_id =     <slack app key>
 # Channel from which you can authorize and logout
 slack_admin_channel_id =  <admin channel id from slack>
-# Channel where all the messages are sent
+# Normal command/reply channel; admin replies use slack_admin_channel_id only.
 channel = #teslacontrol
 
-# MQTT is a standalone control mode: set common.control = mqtt above.
-# Bootstrap Tesla authorization via Matrix/Slack before switching to MQTT.
+# Add MQTT alongside chat with common.control = matrix,mqtt (or slack,mqtt).
+# Standalone mqtt requires cached Tesla auth and leaves saved timers untouched.
+# Use a unique prefix per instance and retain state.ini for discovery cleanup.
 [mqtt]
 host = localhost
 port = 1883

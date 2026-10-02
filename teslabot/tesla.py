@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from typing import (
     List,
     Optional,
@@ -12,12 +13,12 @@ from typing import (
     cast,
     NewType,
     Set,
+    AsyncIterator,
 )
 import re
 import datetime
 from configparser import ConfigParser
 from dataclasses import dataclass
-import traceback
 import json
 from enum import Enum
 import math
@@ -29,8 +30,11 @@ import teslapy
 from urllib.error import HTTPError
 from urllib3.exceptions import ProtocolError
 from requests.exceptions import ConnectionError
+from requests.exceptions import HTTPError as RequestsHTTPError
+import requests.exceptions
+from oauthlib.oauth2 import OAuth2Error
 
-from .control import Control, ControlCallback, CommandContext, MessageContext
+from .control import Control, ControlCallback, CommandContext, MessageContext, MessageSendError
 from .commands import Invocation
 from . import log
 from .config import Config
@@ -421,6 +425,25 @@ def format_temperature(celsius: Optional[float], unit: str) -> str:
     return f"{temperature:g}°{unit}"
 
 
+class TeslaSession(teslapy.Tesla):
+    def send(self, request: Any, **kwargs: Any) -> Any:
+        # TeslaPy bypasses its timeout for SSO, and OAuth passes timeout=None.
+        # Enforce the default at the HTTP boundary, including token refresh.
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = self.timeout
+        return super().send(request, **kwargs)
+
+
+def is_transient_error(error: Exception) -> bool:
+    # Requests wraps response-body ProtocolError in ChunkedEncodingError.
+    if isinstance(error, (requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError,
+                          ConnectionError, ProtocolError)):
+        return True
+    if isinstance(error, RequestsHTTPError):
+        return error.response is not None and (error.response.status_code in (408, 429) or 500 <= error.response.status_code < 600)
+    return isinstance(error, HTTPError) and (error.code in (408, 429) or 500 <= error.code < 600)
+
+
 class App(ControlCallback):
     control: Control
     config: Config
@@ -453,6 +476,12 @@ class App(ControlCallback):
             if x != ""
         }
         self._prev_info = {}
+        self._operation_lock = asyncio.Lock()
+        self._operation_owner: Optional[asyncio.Task[Any]] = None
+        self._auth_lock = asyncio.Lock()
+        self.auth_generation = 0
+        self.auth_events: List[asyncio.Event] = []
+        self._auth_transition = False
         control.callback = self
         cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
         cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
@@ -462,12 +491,18 @@ class App(ControlCallback):
         cache_file = self.config.get(
             "tesla", "credentials_store", fallback="cache.json"
         )
-        self.tesla = teslapy.Tesla(
+        def no_implicit_auth(url: str) -> str:
+            raise AppException("Tesla authorization required; use the admin chat")
+
+        self.tesla = TeslaSession(
             self.config.get("tesla", "email"),
             cache_file=cache_file,
             cache_dumper=cache_dumper,
             cache_loader=cache_loader,
+            timeout=30,
+            authenticator=no_implicit_auth,
         )
+        self.authorized = bool(self.tesla.authorized)
         c = commands
         self._scheduler = AppScheduler(
             state=self.state,
@@ -634,47 +669,49 @@ class App(ControlCallback):
         )
 
     async def _command_logout(self, context: CommandContext, args: Tuple[()]) -> None:
-        if not self.tesla.authorized:
-            await self.control.send_message(
-                context.to_message_context(),
-                "There is no user authorized! Please use !authorize.",
-            )
-        elif not context.admin_room:
+        if not context.admin_room:
             await self.control.send_message(
                 context.to_message_context(),
                 "Please use the admin room for this command.",
             )
         else:
-            # https://github.com/python/mypy/issues/9590
-            def call() -> None:
-                self.tesla.logout()
-
-            await self._retry_to_async(call)
+            async with self._auth_lock:
+                # Close admission before draining an already sent request. Even
+                # failed logout stays fail-closed until explicit authorization.
+                self._auth_transition = True
+                self._auth_changed(False)
+                try:
+                    async with self._operation(allow_transition=True):
+                        had_credentials = bool(self.tesla.authorized)
+                        await to_async(self.tesla.logout)
+                finally:
+                    self._auth_transition = False
             await self.control.send_message(
-                context.to_message_context(), "Logout successful!"
+                context.to_message_context(), "Logout successful!" if had_credentials else "There is no user authorized! Please use !authorize."
             )
 
     async def command_callback(
         self, command_context: CommandContext, invocation: Invocation
     ) -> None:
         """ControlCallback"""
-        logger.debug(f"command_callback({invocation.name})")
+        logger.debug("Application command received")
         if self._commands.has_command(invocation.name):
             try:
                 await self._commands.invoke(command_context, invocation)
-            except AppException as exn:
-                logger.error(str(exn))
+            except (MessageSendError, asyncio.TimeoutError):
+                raise
+            except (AppException, teslapy.VehicleError, RequestsHTTPError, HTTPError,
+                    requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError,
+                    ConnectionError, ProtocolError, OAuth2Error) as exn:
+                logger.error("Application command failed: %s", type(exn).__name__)
                 await self.control.send_message(
-                    command_context.to_message_context(), exn.args[0]
+                    command_context.to_message_context(), str(exn) if isinstance(exn, AppException) else "Tesla request failed; please retry"
                 )
             except commands.CommandsException as exn:
                 raise exn
             except Exception as exn:
-                logger.error(f"{command_context.txn} {exn} {traceback.format_exc()}")
-                await self.control.send_message(
-                    command_context.to_message_context(),
-                    f"{command_context.txn} Exception :(",
-                )
+                logger.error("Application command failed: %s", type(exn).__name__)
+                raise
         else:
             await self.control.send_message(
                 command_context.to_message_context(), "No such command"
@@ -754,6 +791,9 @@ class App(ControlCallback):
         self, context: CommandContext, args: List[str]
     ) -> None:
         self.override_vehicles_lc = {arg.lower() for arg in args}
+        self._auth_changed(self.authorized)
+        if self.authorized:
+            await self._get_vehicle_list()
         await self.state.save()
         await self.control.send_message(
             context.to_message_context(),
@@ -763,7 +803,7 @@ class App(ControlCallback):
     async def _command_authorized(
         self, context: CommandContext, authorization_response: Optional[str]
     ) -> None:
-        if self.tesla.authorized:
+        if self.authorized:
             await self.control.send_message(
                 context.to_message_context(), "Already authorized!"
             )
@@ -776,21 +816,72 @@ class App(ControlCallback):
             if authorization_response is not None:
                 # https://github.com/python/mypy/issues/9590
                 def call() -> None:
+                    if self.tesla.authorized:
+                        self.tesla.logout()
                     self.tesla.fetch_token(
                         authorization_response=authorization_response
                     )
 
-                await self._retry_to_async(call)
+                async with self._auth_lock:
+                    if self.authorized:
+                        raise AppException("Already authorized!")
+                    async with self._operation(allow_transition=True):
+                        try:
+                            await to_async(call)
+                        except asyncio.CancelledError:
+                            self._auth_changed(bool(self.tesla.authorized))
+                            raise
+                        except Exception:
+                            self._auth_changed(False)
+                            raise
+                        self._auth_changed(bool(self.tesla.authorized))
+                        # Cache initialization is independent of auth commit and
+                        # broker readiness. A failed read leaves named parsing empty.
+                        try:
+                            await self._get_vehicle_list()
+                        except Exception:
+                            logger.warning("Authorized vehicle enumeration unavailable")
                 await self.control.send_message(
-                    context.to_message_context(), "Authorization successful"
+                    context.to_message_context(), "Authorization successful" if self.authorized else "Authorization unavailable; please authorize again"
                 )
-            elif not self.tesla.authorized:
-                await self.control.send_message(
-                    context.to_message_context(),
-                    f'Not authorized. Authorization URL: {self.tesla.authorization_url()} "Page Not Found" will be shown at success. Use !authorize https://the/url/you/ended/up/at',
-                )
+            elif not self.authorized:
+                generation = self.auth_generation
+                authorization_url = await self._authorization_url(generation)
+                if authorization_url is not None and generation == self.auth_generation and not self.authorized:
+                    await self.control.send_message(
+                        context.to_message_context(),
+                        f'Not authorized. Authorization URL: {authorization_url} "Page Not Found" will be shown at success. Use !authorize https://the/url/you/ended/up/at',
+                    )
+                else:
+                    await self.control.send_message(context.to_message_context(),
+                                                    "Already authorized!" if self.authorized else "Authorization changed; please retry !authorize")
+
+    async def _authorization_url(self, generation: int) -> Optional[str]:
+        async with self._auth_lock:
+            if generation != self.auth_generation or self.authorized:
+                return None
+            async with self._operation(allow_transition=True):
+                if generation != self.auth_generation or self.authorized:
+                    return None
+                def call() -> str:
+                    # App may have rejected a token the SDK still considers valid.
+                    if self.tesla.authorized:
+                        self.tesla.logout()
+                    url = self.tesla.authorization_url()
+                    if not url:
+                        raise AppException("Tesla did not provide an authorization URL")
+                    return url
+                try:
+                    url = await to_async(call)
+                except (OSError, OAuth2Error, AppException, ProtocolError) as exn:
+                    logger.warning("Authorization initialization failed: %s", type(exn).__name__)
+                    raise AppException("Unable to start authorization; check credential storage/connectivity and retry !authorize") from None
+                return url if generation == self.auth_generation and not self.authorized else None
 
     async def _get_vehicle_list(self) -> List[Any]:
+        if not self.authorized:
+            raise AppException("Tesla authorization required")
+        generation = self.auth_generation
         def call() -> List[Any]:
             vehicle_list = self.tesla.vehicle_list()
             if self.override_vehicles_lc != set():
@@ -799,13 +890,15 @@ class App(ControlCallback):
                     for vehicle in vehicle_list
                     if vehicle["display_name"].lower() in self.override_vehicles_lc
                 ]
-            self.cached_vehicle_list = vehicle_list
-            return self.cached_vehicle_list
+            return vehicle_list
 
         result_or_error = await self._retry_to_async(call)
         if isinstance(result_or_error, Exception):
             raise result_or_error
         assert result_or_error is not None
+        if generation != self.auth_generation:
+            raise AppException("Authorization changed; enumeration discarded")
+        self.cached_vehicle_list = result_or_error
         return result_or_error
 
     async def _command_vehicles(
@@ -832,7 +925,7 @@ class App(ControlCallback):
             else:
                 raise ArgException(f"No vehicle found")
         else:
-            logger.debug(f"vehicle={vehicles[0]}")
+            logger.debug("Vehicle selected")
             return vehicles[0]
 
     async def _get_vehicle_by_id(self, vehicle_id: str) -> teslapy.Vehicle:
@@ -850,13 +943,15 @@ class App(ControlCallback):
 
         try:
             await call_with_delay_info(
-                delay_sec=5.0, report=report, task=to_async(vehicle.sync_wake_up)
+                delay_sec=5.0, report=report, task=self._retry_to_async(vehicle.sync_wake_up)
             )
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle; aborting")
 
     async def _load_state(self) -> None:
         if self.state.has_section("tesla"):
+            if self.state["tesla"].has_key("override_vehicles"):
+                self.override_vehicles_lc = {name.strip().lower() for name in self.state["tesla"]["override_vehicles"].split(",") if name.strip()}
             location_detail_value = self.state.get(
                 "tesla", "location_detail", fallback=LocationDetail.Full.value
             )
@@ -961,7 +1056,7 @@ class App(ControlCallback):
             return ActionResult(self._vehicle_id(vehicle), action,
                                 requested_value, True)
         except (AppException, teslapy.VehicleError, HTTPError, ProtocolError, ConnectionError) as exn:
-            return ActionResult(vehicle_id or "", action, requested_value, False, str(exn))
+            return ActionResult(vehicle_id or "", action, requested_value, False, type(exn).__name__)
 
     async def set_ac(
         self, vehicle_name: Optional[str], enabled: bool,
@@ -992,14 +1087,14 @@ class App(ControlCallback):
 
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
         (delta_kwd, vehicle_name), _ = args
-        delta_mode = delta_kwd == "delta"
+        delta_mode = delta_kwd == "delta" and not context.scheduled
         try:
             snapshot = await self.refresh_vehicle(vehicle_name, context)
             data = snapshot.data
             # refresh cache for parsers etc
             await self._get_vehicle_list()
 
-            logger.debug(f"data: {data}")
+            logger.debug("Vehicle data received")
             dist_hr_unit = data["gui_settings"]["gui_distance_units"]
             dist_unit = assert_some(
                 re.match(r"^[^/]*", dist_hr_unit),
@@ -1057,6 +1152,10 @@ class App(ControlCallback):
             message = ""
             last_topic = ""
             buffer = ""
+            pending_info: Dict[str, str] = {}
+            # Scheduled output is full and never advances an interactive
+            # destination's presentation history.
+            destination = (id(context.to_message_context().origin), context.admin_room)
 
             def track(topic: str, contents: str) -> None:
                 """Once topic changes, check if its contents changed since the previous round
@@ -1068,10 +1167,10 @@ class App(ControlCallback):
                 nonlocal last_topic
 
                 if topic != last_topic:
-                    topic_key = f"{snapshot.vehicle_id}:{last_topic}"
+                    topic_key = f"{destination}:{snapshot.vehicle_id}:{last_topic}"
                     if self._prev_info.get(topic_key, "") != buffer:
                         message += buffer
-                        self._prev_info[topic_key] = buffer
+                        pending_info[topic_key] = buffer
                     elif not delta_mode:
                         message += buffer
                     buffer = ""
@@ -1189,6 +1288,8 @@ class App(ControlCallback):
             await self.control.send_message(
                 context.to_message_context(), message.strip()
             )
+            if not context.scheduled:
+                self._prev_info.update(pending_info)
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
         except (AppException, teslapy.VehicleError, ProtocolError, ConnectionError) as exn:
@@ -1244,29 +1345,37 @@ class App(ControlCallback):
         await self._command_on_vehicle(context, vehicle_name, call)
 
     async def _retry(self, fn: Callable[[], Awaitable[T]]) -> T:
+        generation = self.auth_generation
         num_retries = 0
         result_is_set = False
         result: T
         error = None
         while num_retries < 15:
+            if generation != self.auth_generation:
+                raise AppException("Authorization changed; retry discarded")
             try:
                 result = await fn()
                 result_is_set = True
                 error = None
                 break
             except teslapy.VehicleError as exn:
-                logger.debug(f"Vehicle error: {exn}")
+                logger.debug("Vehicle request failed")
                 error = exn
                 if exn.args[0] != "could_not_wake_buses":
                     break
             except HTTPError as exn:
-                logger.debug(f"HTTP error: {exn}")
+                logger.debug("HTTP request failed")
+                error = exn
+            except (RequestsHTTPError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as exn:
+                if not is_transient_error(exn):
+                    raise
+                logger.debug("Transient Tesla request failed")
                 error = exn
             except ProtocolError as exn:
-                logger.debug(f"HTTP protocol error: {exn}")
+                logger.debug("HTTP protocol failed")
                 error = exn
             except ConnectionError as exn:
-                logger.debug(f"HTTP connection error: {exn}")
+                logger.debug("HTTP connection failed")
                 error = exn
             finally:
                 logger.debug(f"Retry round complete")
@@ -1286,18 +1395,58 @@ class App(ControlCallback):
 
             return await to_async(call2)
 
-        return await self._retry(call)
+        async with self._operation():
+            try:
+                return await self._retry(call)
+            except (OAuth2Error, RequestsHTTPError) as exn:
+                if isinstance(exn, OAuth2Error) or (exn.response is not None and exn.response.status_code in (401, 403)):
+                    self._auth_changed(False)
+                raise
+
+    def _auth_changed(self, authorized: bool) -> None:
+        self.authorized = authorized
+        self.auth_generation += 1
+        self.cached_vehicle_list = []
+        for event in self.auth_events:
+            event.set()
+        logger.info("Tesla authorization state changed: %s generation %d", authorized, self.auth_generation)
+
+    @contextlib.asynccontextmanager
+    async def _operation(self, allow_transition: bool = False) -> AsyncIterator[None]:
+        task = asyncio.current_task()
+        if self._operation_owner is task:
+            yield
+            return
+        generation = self.auth_generation
+        if self._auth_transition and not allow_transition:
+            raise AppException("Authorization transition in progress")
+        async with self._operation_lock:
+            if not allow_transition and (generation != self.auth_generation or self._auth_transition):
+                raise AppException("Authorization changed; retry the request")
+            self._operation_owner = task
+            try:
+                yield
+            finally:
+                self._operation_owner = None
 
     async def _execute_vehicle(
         self, vehicle_name: Optional[str], fn: Callable[[teslapy.Vehicle], T],
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> Tuple[teslapy.Vehicle, T]:
-        vehicle = (await self._get_vehicle_by_id(vehicle_id) if vehicle_id is not None
-                   else await self._get_vehicle(vehicle_name))
-        await self._retry(lambda: self._wake(context, vehicle))
-        result = await self._retry_to_async(lambda: fn(vehicle))
-        return vehicle, result
+        generation = self.auth_generation
+        async with self._operation():
+            if not self.authorized:
+                raise AppException("Tesla authorization required")
+            vehicle = (await self._get_vehicle_by_id(vehicle_id) if vehicle_id is not None
+                       else await self._get_vehicle(vehicle_name))
+            await self._wake(context, vehicle)
+            if generation != self.auth_generation:
+                raise AppException("Authorization changed; request discarded")
+            result = await self._retry_to_async(lambda: fn(vehicle))
+            if generation != self.auth_generation:
+                raise AppException("Authorization changed; result discarded")
+            return vehicle, result
 
     @staticmethod
     def _vehicle_id(vehicle: teslapy.Vehicle) -> str:
@@ -1326,7 +1475,7 @@ class App(ControlCallback):
             )
             return None
         except Exception as exn:
-            logger.error(f"{context.txn} {exn} {traceback.format_exc()}")
+            logger.error("Vehicle operation failed: %s", type(exn).__name__)
             await self.control.send_message(
                 context.to_message_context(), f"{context.txn} Exception :("
             )
@@ -1352,20 +1501,42 @@ class App(ControlCallback):
         await self.control.send_message(context.to_message_context(),
                                         "Success!" if result.success else f"Error: {result.error}")
 
+    async def initialize(self) -> None:
+        await self._load_state()
+        self.state.add_element(AppState(self))
+        if self.control.run_scheduled_commands:
+            await self._scheduler.load()
+        if self.authorized:
+            try:
+                await self._get_vehicle_list()
+            except Exception:
+                logger.warning("Startup vehicle enumeration unavailable")
+
     async def run(self) -> None:
         if self.control.run_scheduled_commands:
-            await self._scheduler.start()
-        await self._load_state()
+            await self._scheduler._scheduler.start()
         await self.control.send_message(
             MessageContext(admin_room=False), f"TeslaBot {__version__} started"
         )
-        self.state.add_element(AppState(self))
+        if not self.authorized and self.control.run_scheduled_commands:
+            generation = self.auth_generation
+            try:
+                authorization_url = await self._authorization_url(generation)
+                if authorization_url is not None and generation == self.auth_generation and not self.authorized:
+                    await self.control.send_message(
+                        MessageContext(admin_room=True),
+                        f'Not authorized. Authorization URL: {authorization_url} "Page Not Found" will be shown at success. Use !authorize https://the/url/you/ended/up/at',
+                    )
+            except (AppException, MessageSendError, asyncio.TimeoutError):
+                logger.warning("Startup authorization notice dropped")
+        if self.control.run_scheduled_commands:
+            assert self._scheduler._scheduler._task is not None
+            await self._scheduler._scheduler._task
+            raise AppException("Scheduler returned unexpectedly")
+        await asyncio.Event().wait()
 
-        if not self.tesla.authorized:
-            await self.control.send_message(
-                MessageContext(admin_room=True),
-                f'Not authorized. Authorization URL: {self.tesla.authorization_url()} "Page Not Found" will be shown at success. Use !authorize https://the/url/you/ended/up/at',
-            )
-        else:
-            # ensure the vehicle list is cached at least once
-            await self._get_vehicle_list()
+    async def close(self) -> None:
+        if self._scheduler._scheduler._task is not None:
+            await self._scheduler._scheduler.stop()
+        async with self._operation(allow_transition=True):
+            self.tesla.close()
