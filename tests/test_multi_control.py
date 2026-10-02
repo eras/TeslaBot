@@ -198,7 +198,7 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
                 return request(True)
             def get_vehicle_data(self):
                 return request({"climate_state": {}, "charge_state": {}})
-        vehicle = Vehicle(display_name="Car", vin="VIN1")
+        vehicle = Vehicle(display_name="Car", vin="VIN1", state="online", id_s="1")
         self.app.tesla.vehicle_list = lambda: request([vehicle])
         self.app.authorized = self.app.tesla.authorized = True
         await asyncio.gather(

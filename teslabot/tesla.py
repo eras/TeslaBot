@@ -1,4 +1,5 @@
 import asyncio
+import collections.abc
 import contextlib
 from typing import (
     List,
@@ -83,6 +84,38 @@ class VehicleException(AppException):
     pass
 
 
+def plain_data(value: Any) -> Any:
+    """Detach JSON-like SDK data without reconstructing dict subclasses/sessions."""
+    if isinstance(value, collections.abc.Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise VehicleException(f"Non-string Tesla data keys: {value!r}")
+        return {key: plain_data(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [plain_data(item) for item in value]
+    if value is None or type(value) in (bool, int, float, str):
+        return value
+    raise VehicleException(f"Unsupported Tesla data value: {value!r} ({type(value).__name__})")
+
+
+def data_section(data: Dict[str, Any], name: str) -> Dict[str, Any]:
+    value = data.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def number(value: Any) -> Optional[float]:
+    if type(value) not in (int, float):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:
+        return None
+
+
+def vehicle_display_name(vehicle: collections.abc.Mapping[str, Any]) -> str:
+    name = vehicle.get("display_name")
+    return name if isinstance(name, str) and name else "Unnamed vehicle"
+
+
 @dataclass
 class VehicleSnapshot:
     vehicle_id: str
@@ -97,7 +130,7 @@ class VehicleSnapshot:
     inside_temp: Optional[float]
     outside_temp: Optional[float]
     temperature_unit: str
-    data: Dict[str, Any]  # Additional Tesla fields used by the existing chat info view.
+    data: Dict[str, Any]  # Detached plain data, never a live SDK Vehicle/session.
 
 
 @dataclass
@@ -124,7 +157,8 @@ class ValidVehicle(p.Map[str, VehicleName]):
     def make_validator(self) -> p.Parser[str]:
         # TODO: Cannot do async stuff here, so the cached version must do
         vehicles = self.app.cached_vehicle_list
-        display_names = [vehicle["display_name"] for vehicle in vehicles]
+        display_names = [name for vehicle in vehicles
+                         if isinstance(name := vehicle.get("display_name"), str) and name]
         return p.OneOfStrings(display_names)
 
 
@@ -454,7 +488,7 @@ class App(ControlCallback):
     _scheduler: AppScheduler[None]
     locations: Locations
     location_detail: LocationDetail
-    cached_vehicle_list: List[Any]
+    cached_vehicle_list: List[Dict[str, Any]]
     _prev_info: Dict[str, str]
     override_vehicles_lc: Set[str]  # If empty, query for devices
 
@@ -731,15 +765,18 @@ class App(ControlCallback):
                 self, vehicle_name: Optional[str]
             ) -> Optional[LatLon]:
                 def call(vehicle: teslapy.Vehicle) -> Any:
-                    return vehicle.get_vehicle_data()
+                    return plain_data(vehicle.get_vehicle_data())
 
                 data = await self.app._command_on_vehicle(
                     context, vehicle_name, call, show_success=False
                 )
                 if data:
-                    lat = data["drive_state"]["latitude"]
-                    lon = data["drive_state"]["longitude"]
-                    return LatLon(lat, lon)
+                    drive = data_section(data, "drive_state")
+                    lat, lon = number(drive.get("latitude")), number(drive.get("longitude"))
+                    if lat is not None and lon is not None:
+                        return LatLon(lat, lon)
+                    await self.app.control.send_message(context.to_message_context(), "Vehicle location is unavailable")
+                    return None
                 else:
                     return None
 
@@ -878,19 +915,22 @@ class App(ControlCallback):
                     raise AppException("Unable to start authorization; check credential storage/connectivity and retry !authorize") from exn
                 return url if generation == self.auth_generation and not self.authorized else None
 
-    async def _get_vehicle_list(self) -> List[Any]:
+    async def _get_vehicle_list(self, sdk_objects: bool = False) -> List[Any]:
+        if sdk_objects and self._operation_owner is not asyncio.current_task():
+            raise AppException("SDK vehicle selection requires the Tesla operation gate")
         if not self.authorized:
             raise AppException("Tesla authorization required")
         generation = self.auth_generation
-        def call() -> List[Any]:
+        def call() -> Tuple[List[Any], List[Dict[str, Any]]]:
             vehicle_list = self.tesla.vehicle_list()
             if self.override_vehicles_lc != set():
                 vehicle_list = [
                     vehicle
                     for vehicle in vehicle_list
-                    if vehicle["display_name"].lower() in self.override_vehicles_lc
+                    if isinstance(vehicle.get("display_name"), str)
+                    and vehicle.get("display_name").lower() in self.override_vehicles_lc
                 ]
-            return vehicle_list
+            return vehicle_list, [plain_data(vehicle) for vehicle in vehicle_list]
 
         result_or_error = await self._retry_to_async(call)
         if isinstance(result_or_error, Exception):
@@ -898,8 +938,9 @@ class App(ControlCallback):
         assert result_or_error is not None
         if generation != self.auth_generation:
             raise AppException("Authorization changed; enumeration discarded")
-        self.cached_vehicle_list = result_or_error
-        return result_or_error
+        vehicles, metadata = result_or_error
+        self.cached_vehicle_list = metadata
+        return vehicles if sdk_objects else metadata
 
     async def _command_vehicles(
         self, context: CommandContext, valid: Tuple[()]
@@ -910,12 +951,13 @@ class App(ControlCallback):
         )
 
     async def _get_vehicle(self, display_name: Optional[str]) -> teslapy.Vehicle:
-        vehicles = await self._get_vehicle_list()
+        vehicles = await self._get_vehicle_list(sdk_objects=True)
         if display_name is not None:
             vehicles = [
                 vehicle
                 for vehicle in vehicles
-                if vehicle["display_name"].lower() == display_name.lower()
+                if isinstance(vehicle.get("display_name"), str)
+                and vehicle.get("display_name").lower() == display_name.lower()
             ]
         if len(vehicles) > 1:
             raise ArgException("Matched more than one vehicle; aborting")
@@ -929,16 +971,19 @@ class App(ControlCallback):
             return vehicles[0]
 
     async def _get_vehicle_by_id(self, vehicle_id: str) -> teslapy.Vehicle:
-        vehicles = [v for v in await self._get_vehicle_list() if self._vehicle_id(v) == vehicle_id]
+        vehicles = [v for v in await self._get_vehicle_list(sdk_objects=True) if self._vehicle_id(v) == vehicle_id]
         if len(vehicles) != 1:
             raise ArgException("Vehicle identity not found or ambiguous")
         return vehicles[0]
 
     async def _wake(self, context: Optional[CommandContext], vehicle: teslapy.Vehicle) -> None:
+        for key in ("display_name", "state", "id_s"):
+            if not isinstance(vehicle.get(key), str) or not vehicle.get(key):
+                raise VehicleException(f"Vehicle metadata missing {key}: {vehicle}")
         async def report() -> None:
             if context is not None:
                 await self.control.send_message(
-                    context.to_message_context(), f"Waking up {vehicle['display_name']}"
+                    context.to_message_context(), f"Waking up {vehicle_display_name(vehicle)}"
                 )
 
         try:
@@ -946,7 +991,7 @@ class App(ControlCallback):
                 delay_sec=5.0, report=report, task=self._retry_to_async(vehicle.sync_wake_up)
             )
         except teslapy.VehicleError as exn:
-            raise VehicleException(f"Failed to wake up vehicle; aborting")
+            raise VehicleException(f"Failed to wake up vehicle: {exn}; aborting") from exn
 
     async def _load_state(self) -> None:
         if self.state.has_section("tesla"):
@@ -1017,23 +1062,26 @@ class App(ControlCallback):
         vehicle_id: Optional[str] = None,
     ) -> VehicleSnapshot:
         def call(vehicle: teslapy.Vehicle) -> Any:
-            return vehicle.get_vehicle_data()
+            return plain_data(vehicle.get_vehicle_data())
 
         vehicle, data = await self._execute_vehicle(vehicle_name, call, context, vehicle_id)
-        climate = data.get("climate_state") or {}
-        charge = data.get("charge_state") or {}
+        climate = data_section(data, "climate_state")
+        charge = data_section(data, "charge_state")
+        def integer(value: Any) -> Optional[int]:
+            return value if type(value) is int else None
+        climate_on = climate.get("is_climate_on", climate.get("is_auto_conditioning_on"))
         return VehicleSnapshot(
             vehicle_id=self._vehicle_id(vehicle),
-            display_name=vehicle["display_name"],
+            display_name=vehicle_display_name(vehicle),
             observed_at=datetime.datetime.now(datetime.timezone.utc),
-            battery_level=charge.get("battery_level"),
-            charging_state=charge.get("charging_state"),
-            charge_limit=charge.get("charge_limit_soc"),
-            charge_amps=charge.get("charge_current_request"),
-            climate_on=climate.get("is_climate_on", climate.get("is_auto_conditioning_on")),
-            defrost_mode=climate.get("defrost_mode"),
-            inside_temp=climate.get("inside_temp"),
-            outside_temp=climate.get("outside_temp"),
+            battery_level=integer(charge.get("battery_level")),
+            charging_state=charge.get("charging_state") if isinstance(charge.get("charging_state"), str) else None,
+            charge_limit=integer(charge.get("charge_limit_soc")),
+            charge_amps=integer(charge.get("charge_current_request")),
+            climate_on=climate_on if type(climate_on) is bool else None,
+            defrost_mode=integer(climate.get("defrost_mode")),
+            inside_temp=number(climate.get("inside_temp")),
+            outside_temp=number(climate.get("outside_temp")),
             temperature_unit="C",  # Tesla API temperatures are Celsius regardless of GUI setting.
             data=data,
         )
@@ -1045,25 +1093,32 @@ class App(ControlCallback):
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> ActionResult:
+        identity = vehicle_id or ""
+        def selected(vehicle: teslapy.Vehicle) -> None:
+            nonlocal identity
+            identity = self._vehicle_id(vehicle)
         try:
             def call(vehicle: teslapy.Vehicle) -> Any:
                 return vehicle.command(command, **(kwargs or {}))
 
-            vehicle, result = await self._execute_vehicle(vehicle_name, call, context, vehicle_id)
+            vehicle, result = await self._execute_vehicle(vehicle_name, call, context, vehicle_id, on_selected=selected)
             if result is False or (isinstance(result, dict) and result.get("result") is False):
                 return ActionResult(self._vehicle_id(vehicle), action,
-                                    requested_value, False, "Vehicle rejected command")
+                                    requested_value, False, str(result.get("reason") or "Vehicle rejected command") if isinstance(result, dict) else "Vehicle rejected command")
             return ActionResult(self._vehicle_id(vehicle), action,
                                 requested_value, True)
-        except (AppException, teslapy.VehicleError, HTTPError, ProtocolError, ConnectionError) as exn:
-            logger.exception("Vehicle action %s for %s failed: requested %s", action, vehicle_id or vehicle_name, requested_value)
-            return ActionResult(vehicle_id or "", action, requested_value, False, type(exn).__name__)
+        except (AppException, teslapy.VehicleError, HTTPError, RequestsHTTPError, ProtocolError,
+                ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError, OAuth2Error) as exn:
+            logger.exception("Vehicle action %s for %s failed: requested %s", action, identity or vehicle_name, requested_value)
+            return ActionResult(identity, action, requested_value, False, str(exn) or type(exn).__name__)
 
     async def set_ac(
         self, vehicle_name: Optional[str], enabled: bool,
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> ActionResult:
+        if type(enabled) is not bool:
+            raise ArgException("AC state must be a boolean")
         return await self._perform_action(vehicle_name, "ac", enabled,
                                           "CLIMATE_ON" if enabled else "CLIMATE_OFF", context=context,
                                           vehicle_id=vehicle_id)
@@ -1073,6 +1128,8 @@ class App(ControlCallback):
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> ActionResult:
+        if type(enabled) is not bool:
+            raise ArgException("Sauna state must be a boolean")
         return await self._perform_action(vehicle_name, "sauna", enabled,
                                           "MAX_DEFROST", {"on": enabled}, context, vehicle_id)
 
@@ -1081,6 +1138,8 @@ class App(ControlCallback):
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> ActionResult:
+        if type(percent) is not int:
+            raise ArgException("Charge limit must be an integer")
         op = ChargeOpSetLimit(percent)
         command, kwargs = op.get_command()
         return await self._perform_action(vehicle_name, "charge_limit", percent,
@@ -1092,58 +1151,65 @@ class App(ControlCallback):
         try:
             snapshot = await self.refresh_vehicle(vehicle_name, context)
             data = snapshot.data
-            # refresh cache for parsers etc
-            await self._get_vehicle_list()
-
             logger.debug("data: %s", data)
-            dist_hr_unit = data["gui_settings"]["gui_distance_units"]
+            def required(section: str, key: str, kinds: Tuple[type, ...], nullable: bool = False) -> Any:
+                values = data_section(data, section)
+                value = values.get(key)
+                if key not in values or (value is None and not nullable):
+                    raise VehicleException(f"Vehicle information unavailable: {section}.{key}")
+                if value is not None and (type(value) not in kinds or
+                                         (type(value) in (int, float) and number(value) is None)):
+                    raise VehicleException(f"Invalid vehicle information {section}.{key}: {value!r}")
+                return value
+            dist_hr_unit = required("gui_settings", "gui_distance_units", (str,))
             dist_unit = assert_some(
                 re.match(r"^[^/]*", dist_hr_unit),
                 "Expected to find / from dist_hr_unit",
             )[0]
-            temp_unit = data["gui_settings"]["gui_temperature_units"]
-            drive_state = data.get(
-                "drive_state", {}
-            )  # seems like this is optional data
+            temp_unit = required("gui_settings", "gui_temperature_units", (str,))
+            if temp_unit not in ("C", "F") or dist_unit not in ("km", "mi"):
+                raise VehicleException(f"Unsupported vehicle units: {dist_hr_unit!r}, {temp_unit!r}")
+            drive_state = data_section(data, "drive_state")
             gps_as_of = drive_state.get("gps_as_of")
-            heading = drive_state.get("heading")
-            lat = drive_state.get("latitude")
-            lon = drive_state.get("longitude")
-            has_lat_lon = lat is not None and lon is not None
-            speed = drive_state.get("speed")
-            battery_level = data["charge_state"]["battery_level"]
-            battery_range = data["charge_state"]["battery_range"]
-            est_battery_range = data["charge_state"]["est_battery_range"]
-            charge_limit = data["charge_state"]["charge_limit_soc"]
-            charge_current_request = data["charge_state"]["charge_current_request"]
-            scheduled_charging_mode = data["charge_state"]["scheduled_charging_mode"]
-            scheduled_charging_start_time: Optional[float] = data["charge_state"][
-                "scheduled_charging_start_time"
-            ]
-            charge_rate = data["charge_state"]["charge_rate"]
-            charging_state = data["charge_state"]["charging_state"]
-            time_to_full_charge = data["charge_state"]["time_to_full_charge"]
-            car_version = data["vehicle_state"]["car_version"]
-            front_trunk_open = data["vehicle_state"]["ft"] != 0
-            rear_trunk_open = data["vehicle_state"]["rt"] != 0
-            locked = data["vehicle_state"]["locked"]
-            front_driver_window = data["vehicle_state"]["fd_window"] != 0
-            front_passanger_window = data["vehicle_state"]["fp_window"] != 0
-            rear_driver_window = data["vehicle_state"]["rd_window"] != 0
-            rear_passanger_window = data["vehicle_state"]["rp_window"] != 0
-            valet_mode = data["vehicle_state"]["valet_mode"]
-            odometer = int(data["vehicle_state"]["odometer"])
-            display_name = data["vehicle_state"]["vehicle_name"]
-            climate_state = data["climate_state"]
-            inside_temp = climate_state.get("inside_temp")
-            outside_temp = climate_state.get("outside_temp")
+            heading = number(drive_state.get("heading"))
+            lat = number(drive_state.get("latitude"))
+            lon = number(drive_state.get("longitude"))
+            speed = number(drive_state.get("speed"))
+            battery_level = required("charge_state", "battery_level", (int, float))
+            battery_range = required("charge_state", "battery_range", (int, float))
+            est_battery_range = required("charge_state", "est_battery_range", (int, float))
+            charge_limit = required("charge_state", "charge_limit_soc", (int, float))
+            charge_current_request = required("charge_state", "charge_current_request", (int, float))
+            scheduled_charging_mode = required("charge_state", "scheduled_charging_mode", (str,))
+            scheduled_charging_start_time = required("charge_state", "scheduled_charging_start_time", (int, float), nullable=True)
+            charge_rate = required("charge_state", "charge_rate", (int, float))
+            charging_state = required("charge_state", "charging_state", (str,))
+            time_to_full_charge = required("charge_state", "time_to_full_charge", (int, float))
+            car_version = required("vehicle_state", "car_version", (str,))
+            front_trunk_open = required("vehicle_state", "ft", (int, float)) != 0
+            rear_trunk_open = required("vehicle_state", "rt", (int, float)) != 0
+            locked = required("vehicle_state", "locked", (bool,))
+            front_driver_window = required("vehicle_state", "fd_window", (int, float)) != 0
+            front_passanger_window = required("vehicle_state", "fp_window", (int, float)) != 0
+            rear_driver_window = required("vehicle_state", "rd_window", (int, float)) != 0
+            rear_passanger_window = required("vehicle_state", "rp_window", (int, float)) != 0
+            valet_mode = required("vehicle_state", "valet_mode", (bool,))
+            odometer = int(required("vehicle_state", "odometer", (int, float)))
+            display_name = required("vehicle_state", "vehicle_name", (str,))
+            climate_state = data_section(data, "climate_state")
+            inside_temp = number(climate_state.get("inside_temp"))
+            outside_temp = number(climate_state.get("outside_temp"))
             climate_on = climate_state.get(
                 "is_climate_on", climate_state.get("is_auto_conditioning_on")
             )
-            preconditioning = climate_state.get("is_preconditioning")
+            if type(climate_on) is not bool:
+                climate_on = None
+            preconditioning = climate_state.get("is_preconditioning") is True
             climate_keeper_mode = climate_state.get("climate_keeper_mode")
-            driver_temp_setting = climate_state.get("driver_temp_setting")
-            passenger_temp_setting = climate_state.get("passenger_temp_setting")
+            if not isinstance(climate_keeper_mode, str):
+                climate_keeper_mode = None
+            driver_temp_setting = number(climate_state.get("driver_temp_setting"))
+            passenger_temp_setting = number(climate_state.get("passenger_temp_setting"))
             seat_heater_left = climate_state.get("seat_heater_left")
             seat_heater_right = climate_state.get("seat_heater_right")
             seat_heater_rear_center = climate_state.get("seat_heater_rear_center")
@@ -1181,7 +1247,7 @@ class App(ControlCallback):
             track("version", f"{display_name} version {car_version}\n")
             seat_heaters_str = ", ".join(
                 [
-                    str(x)
+                    str(x) if type(x) is int else "unknown"
                     for x in [
                         seat_heater_left,
                         seat_heater_right,
@@ -1221,18 +1287,18 @@ class App(ControlCallback):
                 + (f" Target: {target_temperature}" if target_temperature else "")
                 + "\n",
             )
-            track("location", f"Heading: {heading}\n")
+            track("location", f"Heading: {heading if heading is not None else 'unknown'}\n")
             track(
                 "location",
                 "Location: "
                 + (
                     self.format_location(Location(lat=lat, lon=lon))
-                    if has_lat_lon
+                    if lat is not None and lon is not None
                     else "unknown"
                 )
                 + "\n",
             )
-            track("location", f"Speed: {speed}\n")
+            track("location", f"Speed: {speed if speed is not None else 'unknown'}\n")
             track(
                 "battery",
                 f"Battery: {battery_level}% {battery_range} {dist_unit} est. {est_battery_range} {dist_unit}\n",
@@ -1294,6 +1360,7 @@ class App(ControlCallback):
         except HTTPError as exn:
             await self.control.send_message(context.to_message_context(), str(exn))
         except (AppException, teslapy.VehicleError, ProtocolError, ConnectionError) as exn:
+            logger.exception("Vehicle info request failed: vehicle %s", vehicle_name)
             await self.control.send_message(context.to_message_context(), f"Error: {exn}")
 
     async def _command_lock(
@@ -1434,25 +1501,33 @@ class App(ControlCallback):
         self, vehicle_name: Optional[str], fn: Callable[[teslapy.Vehicle], T],
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
-    ) -> Tuple[teslapy.Vehicle, T]:
+        on_selected: Optional[Callable[[teslapy.Vehicle], None]] = None,
+    ) -> Tuple[Dict[str, Any], T]:
         generation = self.auth_generation
         async with self._operation():
             if not self.authorized:
                 raise AppException("Tesla authorization required")
             vehicle = (await self._get_vehicle_by_id(vehicle_id) if vehicle_id is not None
                        else await self._get_vehicle(vehicle_name))
+            if on_selected is not None:
+                on_selected(vehicle)
             await self._wake(context, vehicle)
             if generation != self.auth_generation:
                 raise AppException("Authorization changed; request discarded")
-            result = await self._retry_to_async(lambda: fn(vehicle))
+            def call() -> Tuple[Dict[str, Any], T]:
+                result = fn(vehicle)
+                return plain_data(vehicle), result
+            metadata, result = await self._retry_to_async(call)
             if generation != self.auth_generation:
                 raise AppException("Authorization changed; result discarded")
-            return vehicle, result
+            return metadata, result
 
     @staticmethod
-    def _vehicle_id(vehicle: teslapy.Vehicle) -> str:
+    def _vehicle_id(vehicle: collections.abc.Mapping[str, Any]) -> str:
         # Do not put the VIN (or arbitrary display names) into MQTT topics.
-        identity = str(vehicle.get("vin") or vehicle["display_name"])
+        identity = vehicle.get("vin") or vehicle.get("display_name")
+        if not isinstance(identity, str) or not identity:
+            raise VehicleException(f"Vehicle has no usable VIN or display name: {vehicle}")
         return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
 
     async def _command_on_vehicle(
