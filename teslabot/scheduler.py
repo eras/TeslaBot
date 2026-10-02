@@ -162,6 +162,7 @@ class Scheduler(Generic[Context]):
         logger.info(f"Stopping")
         assert self._task
         self._task.cancel()
+        await asyncio.gather(self._task, return_exceptions=True)
         self._task = None
         logger.info(f"Stopped")
 
@@ -209,13 +210,14 @@ class Scheduler(Generic[Context]):
                     try:
                         await next_entry.callback(now)
                     except asyncio.CancelledError:
-                        pass
+                        raise
                     except:
-                        logger.info(f"Scheduler task threw an exception, ignoring: {traceback.format_exc()}")
+                        logger.error("Scheduler callback failed")
+                        raise
         except asyncio.CancelledError:
-            pass
+            raise
         except:
-            traceback.print_exc()
+            logger.error("Scheduler worker failed")
             raise
 
     async def get_entries(self) -> List[Entry[Context]]:

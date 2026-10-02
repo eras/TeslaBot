@@ -1,5 +1,4 @@
 import os
-import traceback
 from typing import List, Union, Optional, Any, Tuple
 import asyncio
 import aiohttp
@@ -36,7 +35,7 @@ class StateSave(StateElement):
         self.control = control
 
     async def save(self, state: State) -> None:
-        if state.has_section("slack"):
+        if not state.has_section("slack"):
             state["slack"] = {}
         st = state["slack"]
         st["channel_id"]= get_optional(self.control._channel_id, "")
@@ -52,8 +51,7 @@ class SlackControl(control.Control):
 
     _api_token: str
     _app_token: str
-    _ws_task: Any               # async_io.Task[Any] won't work with Python..
-    _aiohttp_session: aiohttp.ClientSession
+    _aiohttp_session: Optional[aiohttp.ClientSession]
 
     def __init__(self, env: Env) -> None:
         super().__init__()
@@ -77,18 +75,19 @@ class SlackControl(control.Control):
         if channel_name[0] != "#":
             raise control.ConfigError("Expected channel name to start with #")
         self._channel_name = channel_name
-        self._channel_id = self._state.get("slack", "channel_id", fallback=None)
-        self._client = WebClient(token=api_token, run_async=True)
-        self._aiohttp_session = aiohttp.ClientSession()
+        self._channel_id = self._state.get("slack", "channel_id", fallback=None) or None
+        self._aiohttp_session = None
+        self._state.add_element(StateSave(self))
 
     async def setup(self) -> None:
+        self._aiohttp_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        self._client = WebClient(token=self._api_token, run_async=True, session=self._aiohttp_session)
         if self._channel_id is None:
             result = await assert_future(self._client.api_call(
                 api_method="users.conversations",
                 json={}
             ))
             if result["ok"]:
-                logger.debug(f"result: {result}")
                 ids = [channel["id"] for channel in result["channels"] if f"#{channel['name']}" == self._channel_name]
                 if ids:
                     self._channel_id = ids[0]
@@ -101,12 +100,22 @@ class SlackControl(control.Control):
         #     json={"channel": self._channel_id,
         #           "text": "hello world"}
         # ))
-        self._ws_task = asyncio.create_task(self._ws_handler())
 
     async def run(self) -> None:
-        pass
+        while True:
+            try:
+                await self._ws_handler()
+                raise control.ControlException("Slack worker returned unexpectedly")
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
+                logger.warning("Slack connection lost; retrying in 5 seconds")
+                await asyncio.sleep(5)
+
+    async def close(self) -> None:
+        if self._aiohttp_session is not None:
+            await self._aiohttp_session.close()
 
     async def _ws_handler(self) -> None:
+        assert self._aiohttp_session is not None
         num_retries = 0
         def sleep_time() -> float:
             return min(120, pow(1.15, num_retries) * 10)
@@ -120,6 +129,8 @@ class SlackControl(control.Control):
                         data = json.loads(await response.text())
                         if bool(data.get("ok")):
                             ws_url = data["url"]
+                        elif data.get("error") in ("invalid_auth", "not_authed", "token_revoked", "missing_scope"):
+                            raise control.ConfigError("Slack socket authorization failed")
 
                 if ws_url is None:
                     logger.error(f"Failed to acquire web socket URL; sleeping {sleep_time()} seconds and trying again")
@@ -128,7 +139,7 @@ class SlackControl(control.Control):
                 else:
                     got_messages = False
                     try:
-                        async with aiohttp.ClientSession().ws_connect(ws_url) as session:
+                        async with self._aiohttp_session.ws_connect(ws_url) as session:
                             logger.debug(f"Established websocket connection, waiting first message..")
                             async for message in session:
                                 if not got_messages:
@@ -138,28 +149,18 @@ class SlackControl(control.Control):
                                     break
                                 got_messages = True
                                 json_message = json.loads(message.data)
-                                logger.info(f"json_message: {json_message}")
                                 try:
                                     envelope_id = json_message.get("envelope_id")
                                 except Exception as exn:
-                                    logger.error(f"exception1: {exn}")
+                                    logger.error("Slack envelope failed")
                                     raise exn
                                 # ack first, handle later, so we don't end up reprocessing crashing commands..
                                 if envelope_id is not None:
                                     ack = {"envelope_id": envelope_id}
-                                    logger.debug(f"acking with {ack}")
+                                    logger.debug("Acknowledging Slack envelope")
                                     await session.send_json(ack)
                                     logger.debug(f"acked")
-                                # Filter through bot messages and set admin rights
-                                text = json_message.get("payload", {}).get("event", {}).get("text", None)
-                                bot = json_message.get("payload", {}).get("event", {}).get("bot_id", None)
-                                if text is not None and bot is None:
-                                    admin_room = json_message.get("payload", {}).get("event", {}).get("channel", None) == self._admin_channel_id
-                                    command_context = CommandContext(admin_room=admin_room,
-                                                                    control=self)
-                                    await self.process_message(command_context, text)
-                                if bot is not None:
-                                    logger.debug(f"Not processing bot messages as commands")
+                                await self._process_event(json_message.get("payload", {}).get("event", {}))
                         if got_messages:
                             logger.error(f"Web socket session terminated: sleeping 10 seconds and reconnecting")
                             await asyncio.sleep(10)
@@ -170,28 +171,41 @@ class SlackControl(control.Control):
                             num_retries += 1
                     except aiohttp.WSServerHandshakeError as exn:
                         if exn.status == 408:
-                            logger.error(f"Exception: {exn}. Trying to create new ws connection")
+                            logger.error("Slack handshake timeout; reconnecting")
                             continue
                         raise exn
         except Exception as exn:
-            logger.error(f"exception: {traceback.format_exc()}")
+            logger.error("Slack worker failed: %s", type(exn).__name__)
             raise exn
 
     async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
+    async def _process_event(self, event: Any) -> None:
+        channel = event.get("channel")
+        text = event.get("text")
+        if (isinstance(text, str) and event.get("bot_id") is None and
+                event.get("subtype") is None and channel is not None and
+                channel in (self._channel_id, self._admin_channel_id)):
+            await self.process_message(CommandContext(admin_room=channel == self._admin_channel_id, control=self), text)
+
     async def send_message(self,
                            message_context: control.MessageContext,
                            message: str) -> None:
         assert len(message) == 0 or message[0] != "!"
+        channel = self._admin_channel_id if message_context.admin_room else self._channel_id
+        if not channel:
+            raise control.MessageSendError("Slack destination unavailable")
         try:
             response = await assert_future(self._client.api_call(
                 api_method="chat.postMessage",
-                json={"channel": self._channel_id,
+                json={"channel": channel,
                       "text": message}
             ))
         except SlackApiError as exn:
             assert exn.response["ok"] is False
             error = exn.response["error"] # str like 'invalid_auth', 'channel_not_found'
             raise control.MessageSendError(error) from exn
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            raise control.MessageSendError("Slack delivery unavailable") from None
         pass

@@ -54,6 +54,8 @@ async def async_main() -> None:
 
         config_      = config.Config(filename=args.config,
                                     config_dict=secrets)
+        control_names = control.parse_controls(config_.get("common", "control", fallback="slack"))
+        logger.info("Selected controls: %s", ",".join(control_names))
         _db: firestore.CollectionReference = None
         storage = config_.get("common", "storage")
         if storage == "firestore":
@@ -64,36 +66,54 @@ async def async_main() -> None:
         state_       = filestate.FileState(
                             filename=config_.get("common", "state_file", fallback="state.ini"),
                             _db = _db)
-        control_name = config_.get("common", "control", fallback="slack")
         env          = Env(config=config_,
-                           state=state_)
-        if control_name == "matrix":
-            from . import matrix
-            control_ : control.Control = matrix.MatrixControl(env)
-            matrix.logger.setLevel(log.INFO)
-        elif control_name == "slack":
-            from . import slack
-            control_ = slack.SlackControl(env=env)
-            slack.logger.setLevel(log.DEBUG)
-        elif control_name == "mqtt":
-            from . import mqtt
-            control_ = mqtt.MqttControl(env=env)
-        else:
-            logger.fatal(f"Invalid control {control_name}, expected matrix, slack or mqtt")
-            return
-        app = tesla.App(env=env, control=control_)
-        if control_name == "mqtt":
-            from . import mqtt
-            assert isinstance(control_, mqtt.MqttControl)
-            control_.set_app(app)
-        await control_.setup()
-        asyncio.create_task(control_.run())
-        asyncio.create_task(app.run())
-        while True:
-            await asyncio.sleep(3600)
-    except config.ConfigException as exn:
-        logger.fatal(f"Configuration error: {exn.args[0]}")
+                            state=state_)
+        children = []
+        control_ = None
+        app = None
+        tasks = []
+        try:
+            for name in control_names:
+                if name == "matrix":
+                    from .matrix import MatrixControl
+                    children.append(MatrixControl(env))
+                elif name == "slack":
+                    from .slack import SlackControl
+                    children.append(SlackControl(env))
+                else:
+                    from .mqtt import MqttControl
+                    children.append(MqttControl(env))
+            control_ = control.MultiControl(children)
+            app = tesla.App(env=env, control=control_)
+            for child in children:
+                if not child.run_scheduled_commands:
+                    child.set_app(app)
+            await app.initialize()
+            if not control_.run_scheduled_commands and not app.authorized:
+                raise control.ConfigError("MQTT-only startup requires cached Tesla authorization; authorize using a chat adapter first")
+            tasks = [asyncio.create_task(control_.run()), asyncio.create_task(app.run())]
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                await task
+            raise control.ControlException("Application task returned unexpectedly")
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                # Also covers clients constructed before a later constructor failed.
+                if control_ is None:
+                    control_ = control.MultiControl(children)
+                await control_.close()
+            finally:
+                if app is not None:
+                    await app.close()
+    except (config.ConfigException, control.ConfigError) as exn:
+        logger.fatal("Configuration error: %s", exn.args[0])
         raise SystemExit(1)
+    except Exception as exn:
+        logger.fatal("Terminal application failure: %s", type(exn).__name__)
+        raise SystemExit(1) from None
 
 def main() -> None:
-    asyncio.get_event_loop().run_until_complete(async_main())
+    asyncio.run(async_main())
