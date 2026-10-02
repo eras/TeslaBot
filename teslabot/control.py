@@ -49,6 +49,7 @@ class DefaultControlCallback(ControlCallback):
 
 class Control(ABC):
     run_scheduled_commands = True
+    message_timeout: Optional[float] = 10.0
     local_commands: commands.Commands[CommandContext]
 
     @property
@@ -174,11 +175,12 @@ class MultiControl(Control):
         if message_context.origin is not None:
             if message_context.origin not in self.children or not message_context.origin.run_scheduled_commands:
                 raise MessageSendError("Unknown chat origin")
-            await asyncio.wait_for(message_context.origin.send_message(message_context, message), 10)
+            await asyncio.wait_for(message_context.origin.send_message(message_context, message),
+                                   message_context.origin.message_timeout)
             return
         async def send(child: Control) -> None:
             try:
-                await asyncio.wait_for(child.send_message(message_context, message), 10)
+                await asyncio.wait_for(child.send_message(message_context, message), child.message_timeout)
             except Exception:
                 logger.warning("Chat notification dropped: %s, context %s, message %s", type(child).__name__, message_context, message, exc_info=True)
         await asyncio.gather(*(send(child) for child in self.children if child.run_scheduled_commands))

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import aiohttp
 import re
 import os
@@ -38,6 +39,10 @@ class StateSave(StateElement):
             st["access_token"] = self.control._client.access_token
 
 class MatrixControl(control.Control):
+    # Matrix bounds readiness and delivery independently, including local sends.
+    message_timeout: Optional[float] = None
+    readiness_timeout = 120.0
+    send_timeout = 120.0
     _client: AsyncClient
     _admin_room_id: Optional[str]
     _room_id: Optional[str]
@@ -55,6 +60,19 @@ class MatrixControl(control.Control):
         self._config = env.config
         self._state = env.state
         self._init_done = asyncio.Event()
+        self._send_tasks: dict[asyncio.Task[None], asyncio.Event] = {}
+        self._delivery_lock = asyncio.Lock()
+        self._close_task: Optional[asyncio.Task[None]] = None
+        self._closed = False
+        for name in ("readiness_timeout", "send_timeout"):
+            value = self._config.get("matrix", name, fallback="120")
+            try:
+                timeout = float(value)
+            except ValueError as exn:
+                raise control.ConfigError(f"matrix.{name} must be positive finite seconds, got {value!r}") from exn
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise control.ConfigError(f"matrix.{name} must be positive finite seconds, got {value!r}")
+            setattr(self, name, timeout)
 
         store_path = self._config.get("matrix", "store_path")
         try:
@@ -121,29 +139,116 @@ class MatrixControl(control.Control):
     async def send_message(self,
                            message_context: control.MessageContext,
                            message: str) -> None:
+        if self._closed:
+            raise control.MessageSendError("Matrix control is closed")
+        cancellation = asyncio.Event()
+        task = asyncio.create_task(self._send_message(message_context, message, cancellation))
+        self._send_tasks[task] = cancellation
+        try:
+            await self._join(task, cancellation)
+        finally:
+            self._send_tasks.pop(task, None)
+
+    async def _join(self, task: asyncio.Task[None], cancellation: Optional[asyncio.Event] = None) -> None:
+        cancelled = False
+        while not task.done():
+            try:
+                # Waiting must not forward another cancellation into SDK cleanup.
+                await asyncio.wait([task])
+            except asyncio.CancelledError:
+                cancelled = True
+                if cancellation is not None:
+                    cancellation.set()
+        if cancelled:
+            exn = None if task.cancelled() else task.exception()
+            if exn is not None:
+                logger.error("Matrix operation failed while draining cancellation", exc_info=(type(exn), exn, exn.__traceback__))
+            raise asyncio.CancelledError
+        task.result()
+
+    async def _phase(self, work: Coroutine[Any, Any, Any], timeout: float, cancellation: asyncio.Event) -> Any:
+        if cancellation.is_set():
+            work.close()
+            raise asyncio.CancelledError
+        task = asyncio.create_task(work)
+        interrupted = asyncio.create_task(cancellation.wait())
+        try:
+            done, _ = await asyncio.wait([task, interrupted], timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if task in done and not cancellation.is_set():
+                return task.result()
+            # Cancel once, then join the real operation (including HTTP children)
+            # without forwarding repeated caller/close cancellation into its drain.
+            if not task.done():
+                task.cancel()
+            await asyncio.wait([task])
+            try:
+                task.result()
+            except asyncio.CancelledError as exn:
+                if cancellation.is_set():
+                    raise
+                raise asyncio.TimeoutError from exn
+            if cancellation.is_set():
+                raise asyncio.CancelledError
+            raise asyncio.TimeoutError
+        finally:
+            interrupted.cancel()
+            await asyncio.gather(interrupted, return_exceptions=True)
+
+    async def _room_send(self, room_id: str, message: str) -> Any:
+        async with self._delivery_lock:
+            owner = asyncio.current_task()
+            owned_event: Optional[asyncio.Event] = None
+            original = self._client.get_missing_sessions
+            target_room = room_id
+            def capture(room_id: str) -> Any:
+                nonlocal owned_event
+                # nio creates its sharing event immediately before this call,
+                # but its cleanup try/finally starts only after keys_claim.
+                if room_id == target_room and asyncio.current_task() is owner:
+                    owned_event = self._client.sharing_session.get(room_id)
+                return original(room_id)
+            self._client.get_missing_sessions = capture
+            try:
+                return await self._client.room_send(room_id=room_id, message_type="m.room.message",
+                                                    content={"msgtype": "m.notice", "body": message})
+            finally:
+                self._client.get_missing_sessions = original
+                if owned_event is not None and not owned_event.is_set():
+                    if self._client.sharing_session.get(room_id) is owned_event:
+                        self._client.sharing_session.pop(room_id)
+                    logger.warning("Releasing owned interrupted Matrix key-claim sharing event for room %s; message %s",
+                                   room_id, message, exc_info=True)
+                    owned_event.set()
+
+    async def _send_message(self,
+                            message_context: control.MessageContext,
+                            message: str, cancellation: asyncio.Event) -> None:
         room_id = self._admin_room_id if message_context.admin_room else self._room_id
         if room_id is None:
             logger.error("No room id known, cannot send %s", message)
             raise control.MessageSendError("Matrix destination unavailable")
         else:
             logger.debug(f"send_message wait ready start")
-            await asyncio.wait_for(self.wait_ready(), 10)
+            try:
+                await self._phase(self.wait_ready(), self.readiness_timeout, cancellation)
+            except asyncio.TimeoutError as exn:
+                logger.warning("Matrix readiness for room %s timed out after %s seconds; message %s",
+                               room_id, self.readiness_timeout, message, exc_info=True)
+                raise control.MessageSendError(f"Matrix readiness timed out after {self.readiness_timeout} seconds for {room_id}") from exn
             logger.debug(f"send_message wait ready done")
             logger.info("> %s", message)
             try:
-                response = await self._client.room_send(
-                    room_id=room_id,
-                    message_type="m.room.message",
-                    content = {
-                        "msgtype": "m.notice", # or m.text
-                        "body": message
-                    })
+                response = await self._phase(self._room_send(room_id, message), self.send_timeout, cancellation)
                 if not hasattr(response, "event_id"):
                     raise control.MessageSendError(f"Matrix send failed: {response}")
             except OlmUnverifiedDeviceError as err:
                 logger.exception("Cannot send Matrix message to %s due to verification error: %s; device %s", room_id, err, err.device)
                 raise control.MessageSendError(f"Matrix verification failed: {err}") from err
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exn:
+            except asyncio.TimeoutError as exn:
+                logger.warning("Matrix delivery to room %s timed out after %s seconds; message %s",
+                               room_id, self.send_timeout, message, exc_info=True)
+                raise control.MessageSendError(f"Matrix delivery timed out after {self.send_timeout} seconds for {room_id}") from exn
+            except aiohttp.ClientError as exn:
                 raise control.MessageSendError(f"Matrix delivery unavailable: {exn}") from exn
 
     async def _invite_callback(self, room: MatrixRoom, event: Event) -> None:
@@ -237,4 +342,18 @@ class MatrixControl(control.Control):
             await asyncio.gather(after_first_sync_task, sync_forever_task, return_exceptions=True)
 
     async def close(self) -> None:
+        self._closed = True
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close())
+        await self._join(self._close_task)
+
+    async def _close(self) -> None:
+        tasks = list(self._send_tasks)
+        for cancellation in self._send_tasks.values():
+            cancellation.set()
+        if tasks:
+            await asyncio.wait(tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for task in tasks:
+            self._send_tasks.pop(task, None)
         await self._client.close()

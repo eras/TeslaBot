@@ -27,6 +27,11 @@ password = secret_password
 # Trust the devices of these users. Not secure against active attacks.
 trust_mxids = @youruserid:matrix.org,@anotherid:example.com
 
+# Separate positive finite timeouts in seconds. Readiness does not consume the
+# encrypted delivery budget (key claims/sharing and HTTP sends included).
+readiness_timeout = 120
+send_timeout = 120
+
 [slack]
 slack_api_secret_id =     <slack api key>
 slack_app_secret_id =     <slack app key>

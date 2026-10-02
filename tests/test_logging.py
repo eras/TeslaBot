@@ -72,6 +72,10 @@ class TestDiagnosticDetails(unittest.IsolatedAsyncioTestCase):
 
     async def test_chat_outgoing_payloads_remain_available(self):
         matrix = MatrixControl.__new__(MatrixControl)
+        matrix._send_tasks = {}
+        matrix._delivery_lock = asyncio.Lock()
+        matrix._close_task = None
+        matrix._closed = False
         matrix._admin_room_id = "admin-room-id"
         matrix.wait_ready = mock.AsyncMock()
         matrix._client = mock.Mock(room_send=mock.AsyncMock(return_value=mock.Mock(event_id="event")))
