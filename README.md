@@ -163,6 +163,28 @@ value for observed state. Old retained readings may be stale after a restart;
 use the last-refresh sensor to assess freshness. Location is not published.
 Chat commands do not automatically update MQTT state.
 
+Telemetry crosses the Tesla SDK boundary as detached plain nested data, copied
+inside the serialized worker operation. Snapshots and cached name metadata do
+not contain live SDK vehicles; formatting, name validation, and location lookup
+cannot trigger SDK lazy fetches. MQTT publishes only an explicit scalar state
+projection, never raw diagnostic data. Missing/null sections or wrong scalar
+types produce `null` observations rather than requested/guessed values. Numeric
+strings and booleans are not silently treated as measurements. Complete chat
+info wording is retained; missing or invalid fields required by that view give
+a controlled availability error, while optional climate/location values may be
+unknown. Unavailable coordinates cannot create a saved location. Vehicles with
+missing names are not selectable by a made-up name; invalid wake metadata gives
+an explicit error instead of a hidden fetch. Raw diagnostic fields remain
+available in detached snapshots and detailed logs.
+
+Valid typed AC, sauna, and charge-limit calls return `ActionResult(success=False)`
+for expected vehicle, HTTP, timeout, connection/protocol, or OAuth failures after
+the existing retry/auth-generation handling. Results retain resolved/requested
+identity, action/value, and actual error details. Invalid arguments may raise;
+cancellation and configuration/programming failures propagate. Failed actions
+do not trigger telemetry refresh. If a successful action's follow-up read fails,
+its acceptance result stays truthful and prior retained state stays unchanged.
+
 Discovery ownership is recorded in the configured state store, scoped by
 broker endpoint and topic namespace. Obsolete owned discovery configs and
 retained state are deleted before online, including after restart or logout.

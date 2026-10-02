@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from . import control, log
 from .env import Env
-from .tesla import ActionResult, App, VehicleSnapshot, is_transient_error
+from .tesla import ActionResult, App, VehicleSnapshot, is_transient_error, vehicle_display_name
 
 logger = log.getLogger(__name__)
 
@@ -89,9 +89,16 @@ class MqttControl(control.Control):
         return entities
 
     async def _publish_snapshot(self, client: Any, snapshot: VehicleSnapshot) -> None:
-        state = asdict(snapshot)
-        del state["data"]
-        state["observed_at"] = snapshot.observed_at.isoformat()
+        # Project scalar fields explicitly; never traverse raw diagnostic data.
+        state = {
+            "vehicle_id": snapshot.vehicle_id, "display_name": snapshot.display_name,
+            "observed_at": snapshot.observed_at.isoformat(),
+            "battery_level": snapshot.battery_level, "charging_state": snapshot.charging_state,
+            "charge_limit": snapshot.charge_limit, "charge_amps": snapshot.charge_amps,
+            "climate_on": snapshot.climate_on, "defrost_mode": snapshot.defrost_mode,
+            "inside_temp": snapshot.inside_temp, "outside_temp": snapshot.outside_temp,
+            "temperature_unit": snapshot.temperature_unit,
+        }
         await client.publish(f"{self.prefix}/{snapshot.vehicle_id}/state", json.dumps(state), qos=1, retain=True)
 
     async def _handle(self, client: Any, topic: str, payload: str, retained: bool) -> None:
@@ -134,7 +141,7 @@ class MqttControl(control.Control):
         except Exception as exn:
             logger.warning("MQTT %s for %s failed: %s", action_topic, vehicle_id, exn, exc_info=True)
             if result is None and self._current():
-                result = ActionResult(vehicle_id, action_topic[:-4], payload, False, type(exn).__name__)
+                result = ActionResult(vehicle_id, action_topic[:-4], payload, False, str(exn) or type(exn).__name__)
                 await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
 
     def _current(self) -> bool:
@@ -156,7 +163,7 @@ class MqttControl(control.Control):
             raise
         if generation != self.app.auth_generation:
             return False
-        mapping = {self.app._vehicle_id(v): v["display_name"] for v in vehicles}
+        mapping = {self.app._vehicle_id(v): vehicle_display_name(v) for v in vehicles}
         if len(mapping) != len(vehicles):
             raise control.ConfigError("MQTT vehicle identifiers must be unique")
         owned = set(json.loads(self._state.get("mqtt_owned", self._manifest_key, fallback="[]") or "[]"))
