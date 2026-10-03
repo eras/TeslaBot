@@ -161,6 +161,11 @@ the refresh button periodically if desired. Successful adjustments trigger a
 single follow-up read after a configurable settling delay; a failed or delayed read never substitutes the requested
 value for observed state. Old retained readings may be stale after a restart;
 use the last-refresh sensor to assess freshness. Location is not published.
+Every successful manual or automatic observation publishes a fresh UTC
+`observed_at` for the Last refresh timestamp sensor, even when telemetry values
+are unchanged. It records the completed observation, not command/job enqueue
+time. Failed, cancelled, or superseded reads do not initiate a new timestamp
+publication; packets already submitted to the broker cannot be recalled.
 Chat commands do not automatically update MQTT state.
 
 ### Action Refresh Delay
