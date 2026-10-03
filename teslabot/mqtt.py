@@ -5,14 +5,39 @@ import json
 import ssl
 import hashlib
 import re
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Optional
+import oauthlib.oauth2
+import requests.exceptions
+import teslapy
+import urllib.error
+import urllib3.exceptions
 
 from . import control, log
 from .env import Env
-from .tesla import ActionResult, App, VehicleSnapshot, is_transient_error, vehicle_display_name
+from .tesla import ActionResult, App, AppException, VehicleSnapshot, is_transient_error, vehicle_display_name
 
 logger = log.getLogger(__name__)
+
+
+def refresh_delay(value: str) -> int:
+    if type(value) is not str or not re.fullmatch(r"0|[1-9][0-9]{0,2}", value) or int(value) > 300:
+        raise ValueError(f"Action refresh delay must be an ASCII integer 0..300, got {value!r}")
+    return int(value)
+
+
+@dataclass
+class _Session:
+    client: Any
+    generation: int
+    active: bool = True
+    jobs: Dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    tokens: Dict[str, object] = field(default_factory=dict)
+    cancelling: set[asyncio.Task[None]] = field(default_factory=set)
+    failed: asyncio.Event = field(default_factory=asyncio.Event)
+    error: Optional[Exception] = None
+    receiver: Optional[asyncio.Task[None]] = None
+    stop_task: Optional[asyncio.Task[None]] = None
 
 
 class MqttControl(control.Control):
@@ -38,6 +63,16 @@ class MqttControl(control.Control):
         self._entity_prefix = "teslabot" if self.prefix == "teslabot" else "teslabot_" + hashlib.sha256(self.prefix.encode()).hexdigest()[:12]
         self._auth_event = asyncio.Event()
         self._generation: Optional[int] = None
+        self._session: Optional[_Session] = None
+        self._closed = False
+        self._setting_lock = asyncio.Lock()
+        try:
+            self.action_refresh_delay = refresh_delay(cfg.get("mqtt", "action_refresh_delay", fallback="5").strip())
+            saved = self._state.get("mqtt_action_refresh_delay", self._manifest_key, fallback=None)
+            if saved is not None:
+                self.action_refresh_delay = refresh_delay(saved)
+        except ValueError as exn:
+            raise control.ConfigError(f"Invalid mqtt.action_refresh_delay configuration/state: {exn}") from exn
 
     def set_app(self, app: App) -> None:
         self.app = app
@@ -102,7 +137,11 @@ class MqttControl(control.Control):
         await client.publish(f"{self.prefix}/{snapshot.vehicle_id}/state", json.dumps(state), qos=1, retain=True)
 
     async def _handle(self, client: Any, topic: str, payload: str, retained: bool) -> None:
-        if retained or self.app is None or not self._current():
+        session = self._session
+        if retained or self.app is None or session is None or session.client is not client or not self._valid(session):
+            return
+        if topic == f"{self.prefix}/action_refresh_delay/set":
+            await self._set_delay(session, payload)
             return
         parts = topic.split("/")
         prefix_parts = self.prefix.split("/")
@@ -114,35 +153,192 @@ class MqttControl(control.Control):
             return
         if action_topic not in ("refresh/set", "ac/set", "sauna/set", "charge_limit/set"):
             return
-        result: Optional[ActionResult] = None
         try:
-            if action_topic == "refresh/set":
-                snapshot = await self.app.refresh_vehicle(None, vehicle_id=vehicle_id)
-                if self._current():
-                    await self._publish_snapshot(client, snapshot)
-                return
             if action_topic == "charge_limit/set":
-                if not payload.isdecimal() or not 0 <= int(payload) <= 100:
+                if not re.fullmatch(r"0|[1-9][0-9]{0,2}", payload) or int(payload) > 100:
                     raise ValueError("Charge limit must be an integer from 0 to 100")
+            elif action_topic != "refresh/set" and payload not in ("ON", "OFF"):
+                raise ValueError("Expected ON or OFF")
+        except ValueError as exn:
+            logger.warning("Invalid MQTT %s for %s payload %r: %s", action_topic, vehicle_id, payload, exn, exc_info=True)
+            result = ActionResult(vehicle_id, action_topic[:-4], payload, False, str(exn))
+            await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
+            return
+        # Admission is the supersession boundary, including commands that fail.
+        token = object()
+        session.tokens[vehicle_id] = token
+        await self._cancel_job(session, vehicle_id)
+        if not self._valid(session, vehicle_id, token):
+            return
+        if action_topic == "refresh/set":
+            await self._observe(session, vehicle_id, token, manual_payload=payload)
+            return
+        try:
+            if action_topic == "charge_limit/set":
                 result = await self.app.set_charge_limit(None, int(payload), vehicle_id=vehicle_id)
             else:
-                if payload not in ("ON", "OFF"):
-                    raise ValueError("Expected ON or OFF")
                 enabled = payload == "ON"
                 result = (await self.app.set_ac(None, enabled, vehicle_id=vehicle_id) if action_topic == "ac/set"
                           else await self.app.set_sauna(None, enabled, vehicle_id=vehicle_id))
-            if not self._current():
-                return
-            await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
-            if result.success:
-                snapshot = await self.app.refresh_vehicle(None, vehicle_id=vehicle_id)
-                if self._current():
-                    await self._publish_snapshot(client, snapshot)
-        except Exception as exn:
+        except (AppException, teslapy.VehicleError, requests.exceptions.HTTPError, requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError,
+                urllib.error.HTTPError, urllib3.exceptions.ProtocolError, oauthlib.oauth2.OAuth2Error) as exn:
             logger.warning("MQTT %s for %s failed: %s", action_topic, vehicle_id, exn, exc_info=True)
-            if result is None and self._current():
-                result = ActionResult(vehicle_id, action_topic[:-4], payload, False, str(exn) or type(exn).__name__)
-                await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
+            result = ActionResult(vehicle_id, action_topic[:-4], payload, False, str(exn) or type(exn).__name__)
+        completed = asyncio.get_running_loop().time()
+        delay = self.action_refresh_delay
+        if not self._valid(session, vehicle_id, token):
+            return
+        await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
+        if result.success and self._valid(session, vehicle_id, token):
+            if delay == 0:
+                await self._observe(session, vehicle_id, token)
+            else:
+                session.jobs[vehicle_id] = asyncio.create_task(self._follow_up(session, vehicle_id, token, completed + delay))
+                logger.debug("Scheduled MQTT refresh for %s after %ss at monotonic %s, generation %s, client %s",
+                             vehicle_id, delay, completed + delay, session.generation, client)
+
+    def _valid(self, session: _Session, vehicle_id: Optional[str] = None, token: Optional[object] = None) -> bool:
+        return (self._session is session and session.active and session.error is None and self._current()
+                and self.app is not None and session.generation == self.app.auth_generation
+                and (vehicle_id is None or session.tokens.get(vehicle_id) is token))
+
+    async def _observe(self, session: _Session, vehicle_id: str, token: object, manual_payload: Optional[str] = None) -> None:
+        assert self.app is not None
+        if not self._valid(session, vehicle_id, token):
+            return
+        try:
+            snapshot = await self.app.refresh_vehicle(None, vehicle_id=vehicle_id)
+        except (AppException, teslapy.VehicleError, requests.exceptions.HTTPError, requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError,
+                urllib.error.HTTPError, urllib3.exceptions.ProtocolError, oauthlib.oauth2.OAuth2Error) as exn:
+            logger.warning("MQTT observed refresh for %s generation %s failed: %s", vehicle_id, session.generation, exn, exc_info=True)
+            if manual_payload is not None and self._valid(session, vehicle_id, token):
+                result = ActionResult(vehicle_id, "refresh", manual_payload, False, str(exn) or type(exn).__name__)
+                await session.client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
+            return
+        if self._valid(session, vehicle_id, token):
+            await self._publish_snapshot(session.client, snapshot)
+
+    async def _follow_up(self, session: _Session, vehicle_id: str, token: object, deadline: float) -> None:
+        try:
+            await self._wait_refresh(deadline)
+            await self._observe(session, vehicle_id, token)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exn:
+            self._record_failure(session, exn, f"delayed refresh for {vehicle_id}")
+        finally:
+            if session.jobs.get(vehicle_id) is asyncio.current_task():
+                session.jobs.pop(vehicle_id)
+
+    def _record_failure(self, session: _Session, exn: Exception, context: str) -> None:
+        import aiomqtt
+        logger.error("MQTT session %s generation %s client %s failed: %s",
+                     context, session.generation, session.client, exn,
+                     exc_info=(type(exn), exn, exn.__traceback__))
+        previous = session.error
+        recoverable = isinstance(exn, aiomqtt.MqttError) or is_transient_error(exn)
+        previous_recoverable = previous is not None and (isinstance(previous, aiomqtt.MqttError) or is_transient_error(previous))
+        # Keep the first terminal fault; a later terminal fault must outrank an
+        # earlier recoverable broker/network error, including during teardown.
+        if previous is None or (previous_recoverable and not recoverable):
+            session.error = exn
+        session.failed.set()
+
+    async def _wait_refresh(self, deadline: float) -> None:
+        await asyncio.sleep(max(0, deadline - asyncio.get_running_loop().time()))
+
+    def _cancel_once(self, session: _Session, task: asyncio.Task[None]) -> None:
+        if not task.done() and task not in session.cancelling:
+            session.cancelling.add(task)
+            task.cancel()
+
+    async def _join(self, task: asyncio.Task[None]) -> None:
+        cancelled = False
+        while not task.done():
+            try:
+                await asyncio.wait([task])
+            except asyncio.CancelledError:
+                cancelled = True
+        if not task.cancelled():
+            task.result()
+        if cancelled:
+            raise asyncio.CancelledError
+
+    async def _cancel_job(self, session: _Session, vehicle_id: str) -> None:
+        task = session.jobs.get(vehicle_id)
+        if task is not None:
+            self._cancel_once(session, task)
+            try:
+                await self._join(task)
+            finally:
+                session.cancelling.discard(task)
+
+    async def _stop_session(self, session: _Session) -> None:
+        session.active = False
+        session.tokens.clear()
+        if session.stop_task is None:
+            session.stop_task = asyncio.create_task(self._drain_session(session))
+        await self._join(session.stop_task)
+
+    async def _drain_session(self, session: _Session) -> None:
+        tasks = list(session.jobs.values())
+        if session.receiver is not None:
+            tasks.append(session.receiver)
+        for task in tasks:
+            self._cancel_once(session, task)
+        if tasks:
+            await asyncio.wait(tasks)
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        for task, outcome in zip(tasks, outcomes):
+            if isinstance(outcome, Exception):
+                self._record_failure(session, outcome, f"owned task {task.get_name()} {task.get_coro()} during drain")
+        session.jobs.clear()
+        session.cancelling.clear()
+
+    async def _set_delay(self, session: _Session, payload: str) -> None:
+        try:
+            delay = refresh_delay(payload)
+        except ValueError:
+            logger.exception("Invalid action_refresh_delay MQTT payload %r", payload)
+            return
+        async with self._setting_lock:
+            if not self._valid(session):
+                return
+            section = "mqtt_action_refresh_delay"
+            previous = self._state.get(section, self._manifest_key, fallback=None)
+            if not self._state.has_section(section):
+                self._state[section] = {}
+            self._state[section][self._manifest_key] = str(delay)
+            try:
+                await self._state.save()
+            except BaseException as exn:
+                values = dict(self._state[section].items())
+                if previous is None:
+                    values.pop(self._manifest_key, None)
+                else:
+                    values[self._manifest_key] = previous
+                self._state[section] = values
+                logger.exception("Could not persist action_refresh_delay %s; restoring effective %s and entry %r", delay, self.action_refresh_delay, previous)
+                if not isinstance(exn, Exception):
+                    raise
+                return
+            self.action_refresh_delay = delay
+            logger.info("Committed action_refresh_delay %s for namespace %s", delay, self._manifest_key)
+        if self._valid(session):
+            await self._publish_delay(session.client)
+
+    def _delay_discovery(self) -> Dict[str, Any]:
+        return {"name": "Action refresh delay", "unique_id": f"{self._entity_prefix}_action_refresh_delay",
+                "device": {"identifiers": [f"{self._entity_prefix}_instance"], "name": "TeslaBot"},
+                "availability_topic": f"{self.prefix}/availability", "entity_category": "config",
+                "command_topic": f"{self.prefix}/action_refresh_delay/set",
+                "state_topic": f"{self.prefix}/action_refresh_delay/state",
+                "unit_of_measurement": "s", "min": 0, "max": 300, "step": 1, "mode": "box", "qos": 0, "retain": False}
+
+    async def _publish_delay(self, client: Any) -> None:
+        await client.publish(f"{self.prefix}/action_refresh_delay/state", str(self.action_refresh_delay), qos=1, retain=True)
 
     def _current(self) -> bool:
         return (self.app is not None and self.app.authorized and
@@ -155,6 +351,9 @@ class MqttControl(control.Control):
     async def _reconcile(self, client: Any, generation: int) -> bool:
         assert self.app is not None
         await client.publish(f"{self.prefix}/availability", "offline", qos=1, retain=True)
+        await client.publish(f"{self.discovery_prefix}/number/{self._entity_prefix}/action_refresh_delay/config",
+                             json.dumps(self._delay_discovery()), qos=1, retain=True)
+        await self._publish_delay(client)
         try:
             vehicles = await self.app._get_vehicle_list() if self.app.authorized else []
         except Exception:
@@ -189,11 +388,16 @@ class MqttControl(control.Control):
         self.vehicles = mapping
         self._generation = generation
         if self.app.authorized:
+            await client.subscribe(f"{self.prefix}/action_refresh_delay/set", qos=0)
             await client.publish(f"{self.prefix}/availability", "online", qos=1, retain=True)
             logger.info("MQTT online: generation %d, %d vehicles", generation, len(mapping))
         return generation == self.app.auth_generation
 
     async def close(self) -> None:
+        self._closed = True
+        self._auth_event.set()
+        if self._session is not None:
+            await self._stop_session(self._session)
         if self.app is not None and self._auth_event in self.app.auth_events:
             self.app.auth_events.remove(self._auth_event)
 
@@ -206,41 +410,57 @@ class MqttControl(control.Control):
     async def run(self) -> None:
         import aiomqtt
         assert self.app is not None
+        app = self.app
         retry_delay = 5.0
-        while True:
+        while not self._closed:
             self._auth_event.clear()
-            generation = self.app.auth_generation
+            generation = app.auth_generation
             try:
                 tls_context = ssl.create_default_context() if self.tls else None
                 will = aiomqtt.Will(f"{self.prefix}/availability", "offline", qos=1, retain=True)
                 async with aiomqtt.Client(self.host, port=self.port, username=self.username,
                                           password=self.password, tls_context=tls_context, will=will,
                                           clean_session=True, timeout=10) as client:
+                    session = _Session(client, generation)
+                    self._session = session
+                    self._generation = None
                     try:
                         if not await self._reconcile(client, generation):
                             continue
                         retry_delay = 5.0
                         async def receive() -> None:
                             async for message in client.messages:
-                                if not self._current():
+                                if not self._valid(session):
+                                    if session.active and session.generation == app.auth_generation and not app.authorized:
+                                        continue
                                     return
                                 await self._handle(client, str(message.topic), message.payload.decode("utf-8", errors="replace"), message.retain)
                             raise control.ControlException("MQTT message stream returned unexpectedly")
                         receiver = asyncio.create_task(receive())
+                        session.receiver = receiver
                         changed = asyncio.create_task(self._auth_event.wait())
+                        failed = asyncio.create_task(session.failed.wait())
                         try:
-                            done, _ = await asyncio.wait([receiver, changed], return_when=asyncio.FIRST_COMPLETED)
+                            done, _ = await asyncio.wait([receiver, changed, failed], return_when=asyncio.FIRST_COMPLETED)
+                            if session.error is not None:
+                                raise session.error
                             if receiver in done:
                                 await receiver
                         finally:
-                            receiver.cancel()
-                            changed.cancel()
-                            await asyncio.gather(receiver, changed, return_exceptions=True)
+                            try:
+                                await self._stop_session(session)
+                            finally:
+                                changed.cancel()
+                                failed.cancel()
+                                await asyncio.gather(changed, failed, return_exceptions=True)
                     finally:
+                        await self._stop_session(session)
                         try:
                             await asyncio.wait_for(client.publish(f"{self.prefix}/availability", "offline", qos=1, retain=True), 10)
                         except Exception:
                             pass  # A broken connection's last will publishes offline instead.
+                        if session.error is not None:
+                            raise session.error
             except asyncio.CancelledError:
                 raise
             except Exception as exn:

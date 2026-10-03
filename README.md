@@ -158,10 +158,69 @@ The retained `teslabot/<id>/state` JSON contains observed values and
 `observed_at`. Non-retained `teslabot/<id>/result` reports action outcomes.
 No automatic polling is performed: use a Home Assistant automation to press
 the refresh button periodically if desired. Successful adjustments trigger a
-single follow-up read; a failed or delayed read never substitutes the requested
+single follow-up read after a configurable settling delay; a failed or delayed read never substitutes the requested
 value for observed state. Old retained readings may be stale after a restart;
 use the last-refresh sensor to assess freshness. Location is not published.
 Chat commands do not automatically update MQTT state.
+
+### Action Refresh Delay
+
+`[mqtt] action_refresh_delay = 5` sets the bootstrap delay in integer seconds,
+inclusive range `0..300`. It applies to MQTT AC ON/OFF, sauna/max-defrost ON/OFF,
+and charge-limit changes. `0` preserves the immediate, awaited result-then-read
+behavior. Manual refresh has no settling delay. Positive-delay follow-ups are
+one-shot background jobs outside the Tesla operation gate; the receiver never
+sleeps for the settling interval. The interval starts at successful operation
+completion, not message arrival or completion of result publication.
+
+Home Assistant discovery adds one instance-level **Action refresh delay**
+configuration number on the TeslaBot device. Its exact topics are:
+
+| Topic | Contract |
+|-------|----------|
+| `<prefix>/action_refresh_delay/set` | Non-retained ASCII decimal integer `0..300` |
+| `<prefix>/action_refresh_delay/state` | Retained committed integer seconds, QoS 1 |
+
+Command payloads reject signs, spaces, leading zeros except `0`, fractions,
+booleans, Unicode digits, and nonfinite values. Ordinary INI whitespace is
+trimmed. A separately persisted scalar, scoped to broker endpoint/topic namespace,
+overrides the INI bootstrap on restart. Invalid saved values fail startup clearly.
+The setting is unavailable while Tesla authorization is absent, consistent with
+instance availability. Discovery and committed setting state are republished on
+each connection before online, including when no vehicles are selected.
+
+Storage success commits a setting change before state notification. Save failure
+restores the prior effective value and in-memory entry and logs the full error;
+publication failure afterward does not undo the durable value, and reconnect
+republishes it. Storage reporting failure after actually committing is inherently
+uncertain: there is no cross-storage/broker transaction. Changes affect future
+successful actions only; already pending timers are not retimed or invalidated.
+A settings update sends no Tesla request and changes no auth generation.
+
+Jobs coalesce per vehicle. Before dispatching any newer **valid** vehicle action
+or manual refresh, TeslaBot invalidates, cancels once, and awaits the older job,
+including queued/active SDK reads and in-flight state publication. Rapid successful
+changes therefore leave one read after the latest operation's interval. A newer
+valid but failed action still supersedes the old read and schedules none; invalid,
+retained, unknown-vehicle, or unsupported requests leave useful pending work alone.
+Vehicles have independent timers, while actual SDK operations remain serialized.
+Manual refresh is immediate only in the settling sense: an already sent request
+or publication must drain safely, and the foreground receiver can wait for that
+drain or for a vehicle operation. Packets already submitted cannot be recalled.
+
+Pending jobs belong to one client connection/auth generation. Logout, reconciliation,
+disconnect, or shutdown invalidates and drains them before client exit; reconnect
+does not replay them. Expected read failures retain the previous observed state
+and do not rewrite accepted command results. Broker publication failures reconnect
+locally; unexpected programming faults reach process supervision. Detailed job,
+payload, exception, and traceback diagnostics remain available.
+
+The delay is not optimistic state, confirmation polling, or a guarantee that Tesla
+has settled. Even after waiting, only observed values are published; stale readings
+may still change the dashboard, not issue reversing OFF commands. Larger values
+trade dashboard freshness for settling time and may help charge-limit or defrost
+as well as AC observations. Failed commands cause no read, and chat actions still
+produce no automatic MQTT state publication.
 
 Telemetry crosses the Tesla SDK boundary as detached plain nested data, copied
 inside the serialized worker operation. Snapshots and cached name metadata do

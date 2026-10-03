@@ -192,6 +192,8 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_drained()
 
     async def test_custom_phase_budgets_are_not_shortened_by_composite(self):
+        # Keep the same virtual budgets/workload but allow full-suite GC pauses.
+        self.scale = 0.01
         await self.matrix.close()
         self.matrix, self.env = self.build_control({"readiness_timeout": "30", "send_timeout": "50"})
         self.network = EncryptedNetwork(self.matrix._client, self.real_sleep, self.scale)

@@ -12,7 +12,7 @@ except ImportError:
 from teslabot.config import Config
 from teslabot.env import Env
 from teslabot.filestate import FileState
-from teslabot.mqtt import MqttControl
+from teslabot.mqtt import MqttControl, _Session
 from teslabot.tesla import ActionResult, VehicleSnapshot
 
 
@@ -23,7 +23,7 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     def setUp(self) -> None:
-        config = Config("test.ini", {"mqtt": {"host": "localhost"}})
+        config = Config("test.ini", {"mqtt": {"host": "localhost", "action_refresh_delay": "0"}})
         self.control = MqttControl(Env(config, FileState("test-state.ini")))
         self.control.vehicles = {"id1": "Test vehicle"}
         self.client = mock.AsyncMock()
@@ -37,6 +37,7 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.app.set_charge_limit = mock.AsyncMock()
         self.control.set_app(self.app)
         self.control._generation = 0
+        self.control._session = _Session(self.client, 0)
         self.snapshot = VehicleSnapshot(
             vehicle_id="id1", display_name="Test vehicle",
             observed_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
@@ -85,7 +86,8 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
 
     async def test_followup_read_failure_does_not_publish_requested_state(self) -> None:
         self.app.set_ac.return_value = ActionResult("id1", "ac", True, True)
-        self.app.refresh_vehicle.side_effect = RuntimeError("offline")
+        from teslabot.tesla import AppException
+        self.app.refresh_vehicle.side_effect = AppException("offline")
         await self.control._handle(self.client, "teslabot/id1/ac/set", "ON", False)
         self.assertEqual(self.client.publish.await_count, 1)
         self.assertEqual(self.client.publish.await_args.args[0], "teslabot/id1/result")
@@ -155,5 +157,5 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
                 await task
         self.assertEqual(client.publications[-1], ("teslabot/availability", "offline"))
         configs = [c for c in client.publications if c[0].endswith("/config")]
-        self.assertEqual(len(configs), len(self.control._discovery("id1", "Test vehicle")))
+        self.assertEqual(len(configs), len(self.control._discovery("id1", "Test vehicle")) + 1)
         self.app.refresh_vehicle.assert_not_awaited()
