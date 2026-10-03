@@ -977,7 +977,8 @@ class App(ControlCallback):
         return vehicles[0]
 
     async def _wake(self, context: Optional[CommandContext], vehicle: teslapy.Vehicle) -> None:
-        for key in ("display_name", "state", "id_s"):
+        self._vehicle_id(vehicle)
+        for key in ("state", "id_s"):
             if not isinstance(vehicle.get(key), str) or not vehicle.get(key):
                 raise VehicleException(f"Vehicle metadata missing {key}: {vehicle}")
         async def report() -> None:
@@ -986,9 +987,27 @@ class App(ControlCallback):
                     context.to_message_context(), f"Waking up {vehicle_display_name(vehicle)}"
                 )
 
+        def wake() -> None:
+            present = "display_name" in vehicle
+            name = vehicle.get("display_name")
+            temporary = not isinstance(name, str) or not name
+            label = vehicle_display_name(vehicle)
+            if temporary:
+                # SDK wake logs use [] and would fetch telemetry for an absent
+                # name. This label exists only during that worker-local call.
+                vehicle["display_name"] = label
+            try:
+                vehicle.sync_wake_up()
+            finally:
+                if temporary and vehicle.get("display_name") is label:
+                    if present:
+                        vehicle["display_name"] = name
+                    else:
+                        vehicle.pop("display_name", None)
+
         try:
             await call_with_delay_info(
-                delay_sec=5.0, report=report, task=self._retry_to_async(vehicle.sync_wake_up)
+                delay_sec=5.0, report=report, task=self._retry_to_async(wake)
             )
         except teslapy.VehicleError as exn:
             raise VehicleException(f"Failed to wake up vehicle: {exn}; aborting") from exn
