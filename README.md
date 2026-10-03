@@ -173,8 +173,12 @@ strings and booleans are not silently treated as measurements. Complete chat
 info wording is retained; missing or invalid fields required by that view give
 a controlled availability error, while optional climate/location values may be
 unknown. Unavailable coordinates cannot create a saved location. Vehicles with
-missing names are not selectable by a made-up name; invalid wake metadata gives
-an explicit error instead of a hidden fetch. Raw diagnostic fields remain
+empty, null, or absent display names remain operable by VIN or single-vehicle
+selection and are not selectable by the presentation label `Unnamed vehicle`.
+SDK wake logging uses a worker-local temporary label when needed, restored
+before returning data; it never supplies an identity or fabricated parser name.
+Required state/id_s or identity errors remain explicit instead of causing hidden
+fetches. Raw diagnostic fields remain
 available in detached snapshots and detailed logs.
 
 Valid typed AC, sauna, and charge-limit calls return `ActionResult(success=False)`

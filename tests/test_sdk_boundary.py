@@ -49,6 +49,7 @@ class HttpAdapter(requests.adapters.BaseAdapter):
         self.command_result = True
         self.command_error: Optional[BaseException] = None
         self.command_interrupted = False
+        self.summary = {"state": "online"}
 
     def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
         path = urllib.parse.urlparse(request.url or "").path
@@ -57,6 +58,10 @@ class HttpAdapter(requests.adapters.BaseAdapter):
         status = 200
         if path.endswith("/products"):
             payload = {"response": [self.product]}
+        elif path.endswith("/wake_up"):
+            payload = {"response": {"state": "waking"}}
+        elif path.endswith("/vehicles/1"):
+            payload = {"response": self.summary}
         elif path.endswith("/vehicle_data"):
             self.data_reads += 1
             status = self.data_status
@@ -295,15 +300,15 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tesla.ValidVehicle(self.app).make_validator().parse(["SDK car"]).__class__.__name__, "ParseFail")
         self.assertEqual(self.app._vehicle_id(metadata[0]), self.identity)
         self.assertEqual(len(self.http.calls), calls)
-        with self.assertRaisesRegex(tesla.VehicleException, "metadata missing display_name"):
-            await self.app.refresh_vehicle(None)
-        self.assertEqual(self.http.data_reads, 0)
+        snapshot = await self.app.refresh_vehicle(None)
+        self.assertEqual(snapshot.vehicle_id, self.identity)
+        self.assertEqual(self.http.data_reads, 1)
         result = await self.app.set_ac(None, True)
-        self.assertFalse(result.success)
+        self.assertTrue(result.success)
         self.assertEqual(result.vehicle_id, self.identity)
         with self.assertRaises(tesla.VehicleException):
             self.app._vehicle_id({})
-        self.assertEqual(self.http.data_reads, 0)
+        self.assertEqual(self.http.data_reads, 1)
         self.assert_worker_requests()
 
     async def test_location_consumers_use_detached_data_and_report_unavailable(self):
