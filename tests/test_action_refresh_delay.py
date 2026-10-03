@@ -302,7 +302,8 @@ class DelayTests(unittest.IsolatedAsyncioTestCase):
         self.app.authorized = False
         self.broker.subscriptions.clear()
         await self.mqtt._reconcile(self.broker, 0)
-        self.assertEqual(self.broker.publications[-1][1], "5")
+        self.assertEqual(self.broker.retained["teslabot/action_refresh_delay/state"], "5")
+        self.assertEqual(self.broker.publications[-1][0], "teslabot/version")
         self.assertEqual(self.broker.subscriptions, [])
 
     async def test_failure_drops_observation_not_result_and_programming_failure_signals_owner(self):
