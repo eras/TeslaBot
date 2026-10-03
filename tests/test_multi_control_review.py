@@ -95,7 +95,7 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.multi = control.MultiControl([self.chat])
         self.cfg = Config("unused", {
             "common": {"storage": "local"}, "tesla": {"email": "test@example.com"},
-            "mqtt": {"host": "localhost"},
+            "mqtt": {"host": "localhost", "action_refresh_delay": "0"},
             "slack": {"slack_api_secret_id": "test", "slack_app_secret_id": "test",
                       "slack_admin_channel_id": "admin", "channel": "#normal"},
         })

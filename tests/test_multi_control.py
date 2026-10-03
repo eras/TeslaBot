@@ -11,7 +11,7 @@ from teslabot.asyncthread import to_async
 from teslabot.config import Config
 from teslabot.env import Env
 from teslabot.filestate import FileState
-from teslabot.mqtt import MqttControl
+from teslabot.mqtt import MqttControl, _Session
 from teslabot.slack import SlackControl
 from teslabot.matrix import MatrixControl
 from tests.test_tesla import FakeTesla
@@ -409,6 +409,7 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
             return tesla.ActionResult("id1", "ac", True, True)
         self.app.set_ac = action
         client = mock.AsyncMock()
+        mqtt._session = _Session(client, self.app.auth_generation)
         await mqtt._handle(client, "teslabot/id1/ac/set", "ON", False)
         client.publish.assert_not_awaited()
 

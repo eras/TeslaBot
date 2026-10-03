@@ -51,3 +51,7 @@ port = 1883
 tls = false
 prefix = teslabot
 discovery_prefix = homeassistant
+# One-shot settling delay after successful MQTT AC/sauna/charge-limit actions.
+# Integer seconds 0..300; 0 keeps the legacy immediate result-then-read mode.
+# A saved HA/MQTT setting overrides this bootstrap value on restart.
+action_refresh_delay = 5

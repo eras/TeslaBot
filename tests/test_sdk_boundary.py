@@ -14,7 +14,7 @@ import teslapy
 import urllib3.exceptions
 
 from teslabot import control, tesla
-from teslabot.mqtt import MqttControl
+from teslabot.mqtt import MqttControl, _Session
 import tests.test_multi_control_review as fixtures
 
 
@@ -129,6 +129,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
             if kwargs.get("retain"):
                 self.retained[topic] = payload
         self.client = mock.Mock(publish=mock.AsyncMock(side_effect=publish))
+        self.mqtt._session = _Session(self.client, self.app.auth_generation)
         original_sleep = asyncio.sleep
         async def immediate(delay):
             await original_sleep(0)
