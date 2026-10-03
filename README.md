@@ -168,6 +168,67 @@ time. Failed, cancelled, or superseded reads do not initiate a new timestamp
 publication; packets already submitted to the broker cannot be recalled.
 Chat commands do not automatically update MQTT state.
 
+### Read-Only Telemetry
+
+Each successful manual or action-follow-up observation also updates these
+read-only Home Assistant entities from the same retained vehicle state:
+
+| Information | State fields and units |
+|-------------|------------------------|
+| Five seat warmers | `seat_heater_left/right/rear_left/rear_center/rear_right`, integer levels 0 (off) through 3 |
+| Inside/outside temperature | `inside_temp`, `outside_temp`, Celsius regardless of GUI units |
+| Charge current limit | Existing `charge_amps`, requested current in A, not actual current draw |
+| Charging power | `charger_power_kw`, kW |
+| Range-added charging rate | `charge_rate_kmh`, km of range added per charging hour, not amps or road speed |
+| Estimated charge completion | `charge_finish_eta`, aware UTC ISO timestamp while Charging only |
+| Odometer | `odometer_km`, km with fractional precision |
+| Four tire pressures | `tpms_pressure_fl/fr/rl/rr`, bar; a measured zero remains zero |
+| Software update information | `software_update_status/version`, `software_update_download_percent/install_percent`, `software_update_expected_duration_s` |
+| Door lock | `locked`, true means locked in JSON; HA's lock binary sensor is OFF when locked, ON when unlocked |
+| Four doors | `door_driver_front/rear_open`, `door_passenger_front/rear_open` |
+| Four windows | `window_driver_front/rear_open`, `window_passenger_front/rear_open` |
+| Other openings | `frunk_open`, `trunk_open`, `charge_port_door_open` |
+| Car firmware | `car_version`, including the complete observed version/hash |
+
+Seats and tires use physical left/right labels. Doors and windows use
+driver/passenger labels, including on right-hand-drive vehicles. Opening code
+zero means closed; positive integer codes, including vented windows, mean open.
+Booleans and numeric strings are not interpreted as opening codes or heat levels.
+
+Tesla API odometer and charging range rate are in miles and are converted by
+1.609344 independently of GUI distance preferences. Temperatures and tire
+pressures are already Celsius and bar. The completion estimate uses positive
+`minutes_to_full_charge` preferentially, otherwise positive
+`time_to_full_charge` hours, added to that observation's `observed_at`. It is an
+estimate to the vehicle's charging target, not a guarantee of 100% SOC. Missing,
+nonpositive, invalid, overflowing, or non-Charging estimates become unknown.
+There is no additional HTTP request, timer, or polling to update an ETA.
+
+Unavailable or unsupported fields are published as JSON `null` on each
+successful observation. Discovery templates explicitly reset them to HA's
+`None`/unknown state, including when an older retained payload lacks the field;
+valid zero/false observations are preserved. Invalid continuous numbers,
+negative measurements, and nonfinite converted values are unknown. Software
+strings are trimmed without guessing an update status. Text exceeding HA's
+255-character state limit remains complete in MQTT but renders unknown in HA;
+it is not silently truncated. Raw diagnostic data remains detached inside the
+application and is not added to the public MQTT state.
+
+One instance-level diagnostic **TeslaBot version** sensor uses retained
+`teslabot/version` and discovery
+`homeassistant/sensor/teslabot/version/config`. It shares the Action refresh
+delay device and its `sw_version` metadata, with custom prefixes handled as for
+the existing setting. It is published during reconciliation without requiring
+a vehicle observation, even with zero vehicles or before authorization; shared
+availability remains offline until authorized reconciliation completes. It
+does not change any vehicle timestamp or belong to the vehicle ownership
+manifest. New vehicle configurations follow existing owned-vehicle cleanup.
+
+These entities introduce no seat, lock, door, software-install, or other command
+topics. The command whitelist remains the four vehicle routes above and the
+existing action-refresh-delay setting. Chat's existing charge-rate line now
+uses km/h or mi/h to match its distance preference, while current limit stays A.
+
 ### Action Refresh Delay
 
 `[mqtt] action_refresh_delay = 5` sets the bootstrap delay in integer seconds,

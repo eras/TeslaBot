@@ -131,6 +131,37 @@ class VehicleSnapshot:
     outside_temp: Optional[float]
     temperature_unit: str
     data: Dict[str, Any]  # Detached plain data, never a live SDK Vehicle/session.
+    seat_heater_left: Optional[int] = None
+    seat_heater_right: Optional[int] = None
+    seat_heater_rear_left: Optional[int] = None
+    seat_heater_rear_center: Optional[int] = None
+    seat_heater_rear_right: Optional[int] = None
+    charger_power_kw: Optional[float] = None
+    charge_rate_kmh: Optional[float] = None
+    charge_finish_eta: Optional[str] = None
+    odometer_km: Optional[float] = None
+    tpms_pressure_fl: Optional[float] = None
+    tpms_pressure_fr: Optional[float] = None
+    tpms_pressure_rl: Optional[float] = None
+    tpms_pressure_rr: Optional[float] = None
+    software_update_status: Optional[str] = None
+    software_update_version: Optional[str] = None
+    software_update_download_percent: Optional[float] = None
+    software_update_install_percent: Optional[float] = None
+    software_update_expected_duration_s: Optional[float] = None
+    locked: Optional[bool] = None
+    door_driver_front_open: Optional[bool] = None
+    door_driver_rear_open: Optional[bool] = None
+    door_passenger_front_open: Optional[bool] = None
+    door_passenger_rear_open: Optional[bool] = None
+    window_driver_front_open: Optional[bool] = None
+    window_driver_rear_open: Optional[bool] = None
+    window_passenger_front_open: Optional[bool] = None
+    window_passenger_rear_open: Optional[bool] = None
+    frunk_open: Optional[bool] = None
+    trunk_open: Optional[bool] = None
+    charge_port_door_open: Optional[bool] = None
+    car_version: Optional[str] = None
 
 
 @dataclass
@@ -1086,13 +1117,43 @@ class App(ControlCallback):
         vehicle, data = await self._execute_vehicle(vehicle_name, call, context, vehicle_id)
         climate = data_section(data, "climate_state")
         charge = data_section(data, "charge_state")
+        state = data_section(data, "vehicle_state")
+        update = data_section(state, "software_update")
         def integer(value: Any) -> Optional[int]:
             return value if type(value) is int else None
+        def level(value: Any) -> Optional[int]:
+            return value if type(value) is int and 0 <= value <= 3 else None
+        def opening(value: Any) -> Optional[bool]:
+            return value > 0 if type(value) is int and value >= 0 else None
+        def boolean(value: Any) -> Optional[bool]:
+            return value if type(value) is bool else None
+        def text(value: Any) -> Optional[str]:
+            return value.strip() or None if type(value) is str else None
+        def measurement(value: Any, maximum: Optional[float] = None, scale: float = 1) -> Optional[float]:
+            value = number(value)
+            if value is None or value < 0 or (maximum is not None and value > maximum):
+                return None
+            return number(value * scale)
+        observed_at = datetime.datetime.now(datetime.timezone.utc)
+        eta = None
+        if charge.get("charging_state") == "Charging":
+            minutes = measurement(charge.get("minutes_to_full_charge"))
+            hours = measurement(charge.get("time_to_full_charge"))
+            seconds = None
+            if minutes is not None and minutes > 0:
+                seconds = minutes * 60
+            elif hours is not None and hours > 0:
+                seconds = hours * 3600
+            if seconds is not None:
+                try:
+                    eta = (observed_at + datetime.timedelta(seconds=seconds)).isoformat()
+                except (OverflowError, ValueError):
+                    pass  # An unusable estimate must not discard other observations.
         climate_on = climate.get("is_climate_on", climate.get("is_auto_conditioning_on"))
         return VehicleSnapshot(
             vehicle_id=self._vehicle_id(vehicle),
             display_name=vehicle_display_name(vehicle),
-            observed_at=datetime.datetime.now(datetime.timezone.utc),
+            observed_at=observed_at,
             battery_level=integer(charge.get("battery_level")),
             charging_state=charge.get("charging_state") if isinstance(charge.get("charging_state"), str) else None,
             charge_limit=integer(charge.get("charge_limit_soc")),
@@ -1103,6 +1164,37 @@ class App(ControlCallback):
             outside_temp=number(climate.get("outside_temp")),
             temperature_unit="C",  # Tesla API temperatures are Celsius regardless of GUI setting.
             data=data,
+            seat_heater_left=level(climate.get("seat_heater_left")),
+            seat_heater_right=level(climate.get("seat_heater_right")),
+            seat_heater_rear_left=level(climate.get("seat_heater_rear_left")),
+            seat_heater_rear_center=level(climate.get("seat_heater_rear_center")),
+            seat_heater_rear_right=level(climate.get("seat_heater_rear_right")),
+            charger_power_kw=measurement(charge.get("charger_power")),
+            charge_rate_kmh=measurement(charge.get("charge_rate"), scale=1.609344),
+            charge_finish_eta=eta,
+            odometer_km=measurement(state.get("odometer"), scale=1.609344),
+            tpms_pressure_fl=measurement(state.get("tpms_pressure_fl")),
+            tpms_pressure_fr=measurement(state.get("tpms_pressure_fr")),
+            tpms_pressure_rl=measurement(state.get("tpms_pressure_rl")),
+            tpms_pressure_rr=measurement(state.get("tpms_pressure_rr")),
+            software_update_status=text(update.get("status")),
+            software_update_version=text(update.get("version")),
+            software_update_download_percent=measurement(update.get("download_perc"), maximum=100),
+            software_update_install_percent=measurement(update.get("install_perc"), maximum=100),
+            software_update_expected_duration_s=measurement(update.get("expected_duration_sec")),
+            locked=boolean(state.get("locked")),
+            door_driver_front_open=opening(state.get("df")),
+            door_driver_rear_open=opening(state.get("dr")),
+            door_passenger_front_open=opening(state.get("pf")),
+            door_passenger_rear_open=opening(state.get("pr")),
+            window_driver_front_open=opening(state.get("fd_window")),
+            window_driver_rear_open=opening(state.get("rd_window")),
+            window_passenger_front_open=opening(state.get("fp_window")),
+            window_passenger_rear_open=opening(state.get("rp_window")),
+            frunk_open=opening(state.get("ft")),
+            trunk_open=opening(state.get("rt")),
+            charge_port_door_open=boolean(charge.get("charge_port_door_open")),
+            car_version=text(state.get("car_version")),
         )
 
     async def _perform_action(
@@ -1328,7 +1420,8 @@ class App(ControlCallback):
             track("battery", f"Charge limit: {charge_limit}%")
             track("battery", f" Charge current limit: {charge_current_request}A")
             if charge_rate or charging_state == "Charging":
-                track("battery", f" Charge rate: {charge_rate}A")
+                rate = charge_rate * 1.609344 if dist_unit == "km" else charge_rate
+                track("battery", f" Charge rate: {rate:g} {'km/h' if dist_unit == 'km' else 'mi/h'}")
                 if time_to_full_charge > 0:
                     track(
                         "battery",

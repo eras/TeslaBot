@@ -13,7 +13,7 @@ import teslapy
 import urllib.error
 import urllib3.exceptions
 
-from . import control, log
+from . import __version__, control, log
 from .env import Env
 from .tesla import ActionResult, App, AppException, VehicleSnapshot, is_transient_error, vehicle_display_name
 
@@ -117,6 +117,70 @@ class MqttControl(control.Control):
             "button/sauna_off": dict(common, name="Max defrost off", unique_id=f"teslabot_{vehicle_id}_sauna_off",
                                      command_topic=f"{base}/sauna/set", payload_press="OFF"),
         }
+        # Fixed public telemetry definitions, never inferred from raw SDK data.
+        sensors = {
+            "inside_temp": ("Inside temperature", "temperature", "\u00b0C", "measurement"),
+            "outside_temp": ("Outside temperature", "temperature", "\u00b0C", "measurement"),
+            "charge_amps": ("Charge current limit", "current", "A", "measurement"),
+            "charger_power_kw": ("Charging power", "power", "kW", "measurement"),
+            "charge_rate_kmh": ("Charge range added rate", "speed", "km/h", "measurement"),
+            "charge_finish_eta": ("Estimated charge completion", "timestamp", None, None),
+            "odometer_km": ("Odometer", "distance", "km", "total_increasing"),
+            "seat_heater_left": ("Front left seat heat level", None, None, None),
+            "seat_heater_right": ("Front right seat heat level", None, None, None),
+            "seat_heater_rear_left": ("Rear left seat heat level", None, None, None),
+            "seat_heater_rear_center": ("Rear center seat heat level", None, None, None),
+            "seat_heater_rear_right": ("Rear right seat heat level", None, None, None),
+            "tpms_pressure_fl": ("Front left tire pressure", "pressure", "bar", "measurement"),
+            "tpms_pressure_fr": ("Front right tire pressure", "pressure", "bar", "measurement"),
+            "tpms_pressure_rl": ("Rear left tire pressure", "pressure", "bar", "measurement"),
+            "tpms_pressure_rr": ("Rear right tire pressure", "pressure", "bar", "measurement"),
+            "software_update_status": ("Software update status", None, None, None),
+            "software_update_version": ("Software update version", None, None, None),
+            "software_update_download_percent": ("Software update download progress", None, "%", None),
+            "software_update_install_percent": ("Software update install progress", None, "%", None),
+            "software_update_expected_duration_s": ("Expected software update duration", "duration", "s", None),
+            "car_version": ("Car firmware version", None, None, None),
+        }
+        for key, (label, device_class, unit, state_class) in sensors.items():
+            value = f"value_json.get('{key}')"
+            known = f"{value} is not none"
+            if key in ("software_update_status", "software_update_version", "car_version"):
+                # HA state strings are limited to 255 characters; retain the
+                # complete observed text in MQTT, but reset overlong HA states.
+                known += f" and {value} | length <= 255"
+            config = dict(common, name=label, unique_id=f"teslabot_{vehicle_id}_{key}",
+                          state_topic=state, value_template="{{ " + value + " if " + known + " else 'None' }}")
+            if device_class:
+                config["device_class"] = device_class
+            if unit:
+                config["unit_of_measurement"] = unit
+            if state_class:
+                config["state_class"] = state_class
+            if key.startswith("software_update_") or key == "car_version":
+                config["entity_category"] = "diagnostic"
+            entities[f"sensor/{key}"] = config
+        openings = {
+            "locked": ("Door lock", "lock"),
+            "door_driver_front_open": ("Driver front door", "door"),
+            "door_driver_rear_open": ("Driver rear door", "door"),
+            "door_passenger_front_open": ("Passenger front door", "door"),
+            "door_passenger_rear_open": ("Passenger rear door", "door"),
+            "window_driver_front_open": ("Driver front window", "window"),
+            "window_driver_rear_open": ("Driver rear window", "window"),
+            "window_passenger_front_open": ("Passenger front window", "window"),
+            "window_passenger_rear_open": ("Passenger rear window", "window"),
+            "frunk_open": ("Frunk", "opening"),
+            "trunk_open": ("Trunk", "opening"),
+            "charge_port_door_open": ("Charge port door", "opening"),
+        }
+        for key, (label, device_class) in openings.items():
+            value = f"value_json.get('{key}')"
+            on, off = ("OFF", "ON") if key == "locked" else ("ON", "OFF")
+            entities[f"binary_sensor/{key}"] = dict(
+                common, name=label, unique_id=f"teslabot_{vehicle_id}_{key}", state_topic=state,
+                device_class=device_class,
+                value_template="{{ '" + on + "' if " + value + " is sameas true else '" + off + "' if " + value + " is sameas false else 'None' }}")
         if self._entity_prefix != "teslabot":
             device["identifiers"] = [f"{self._entity_prefix}_{vehicle_id}"]
             for entity in entities.values():
@@ -133,6 +197,37 @@ class MqttControl(control.Control):
             "climate_on": snapshot.climate_on, "defrost_mode": snapshot.defrost_mode,
             "inside_temp": snapshot.inside_temp, "outside_temp": snapshot.outside_temp,
             "temperature_unit": snapshot.temperature_unit,
+            "seat_heater_left": snapshot.seat_heater_left,
+            "seat_heater_right": snapshot.seat_heater_right,
+            "seat_heater_rear_left": snapshot.seat_heater_rear_left,
+            "seat_heater_rear_center": snapshot.seat_heater_rear_center,
+            "seat_heater_rear_right": snapshot.seat_heater_rear_right,
+            "charger_power_kw": snapshot.charger_power_kw,
+            "charge_rate_kmh": snapshot.charge_rate_kmh,
+            "charge_finish_eta": snapshot.charge_finish_eta,
+            "odometer_km": snapshot.odometer_km,
+            "tpms_pressure_fl": snapshot.tpms_pressure_fl,
+            "tpms_pressure_fr": snapshot.tpms_pressure_fr,
+            "tpms_pressure_rl": snapshot.tpms_pressure_rl,
+            "tpms_pressure_rr": snapshot.tpms_pressure_rr,
+            "software_update_status": snapshot.software_update_status,
+            "software_update_version": snapshot.software_update_version,
+            "software_update_download_percent": snapshot.software_update_download_percent,
+            "software_update_install_percent": snapshot.software_update_install_percent,
+            "software_update_expected_duration_s": snapshot.software_update_expected_duration_s,
+            "locked": snapshot.locked,
+            "door_driver_front_open": snapshot.door_driver_front_open,
+            "door_driver_rear_open": snapshot.door_driver_rear_open,
+            "door_passenger_front_open": snapshot.door_passenger_front_open,
+            "door_passenger_rear_open": snapshot.door_passenger_rear_open,
+            "window_driver_front_open": snapshot.window_driver_front_open,
+            "window_driver_rear_open": snapshot.window_driver_rear_open,
+            "window_passenger_front_open": snapshot.window_passenger_front_open,
+            "window_passenger_rear_open": snapshot.window_passenger_rear_open,
+            "frunk_open": snapshot.frunk_open,
+            "trunk_open": snapshot.trunk_open,
+            "charge_port_door_open": snapshot.charge_port_door_open,
+            "car_version": snapshot.car_version,
         }
         await client.publish(f"{self.prefix}/{snapshot.vehicle_id}/state", json.dumps(state), qos=1, retain=True)
 
@@ -331,11 +426,20 @@ class MqttControl(control.Control):
 
     def _delay_discovery(self) -> Dict[str, Any]:
         return {"name": "Action refresh delay", "unique_id": f"{self._entity_prefix}_action_refresh_delay",
-                "device": {"identifiers": [f"{self._entity_prefix}_instance"], "name": "TeslaBot"},
+                "device": self._instance_device(),
                 "availability_topic": f"{self.prefix}/availability", "entity_category": "config",
                 "command_topic": f"{self.prefix}/action_refresh_delay/set",
                 "state_topic": f"{self.prefix}/action_refresh_delay/state",
                 "unit_of_measurement": "s", "min": 0, "max": 300, "step": 1, "mode": "box", "qos": 0, "retain": False}
+
+    def _instance_device(self) -> Dict[str, Any]:
+        return {"identifiers": [f"{self._entity_prefix}_instance"], "name": "TeslaBot", "sw_version": __version__}
+
+    def _version_discovery(self) -> Dict[str, Any]:
+        return {"name": "TeslaBot version", "unique_id": f"{self._entity_prefix}_version",
+                "device": self._instance_device(), "entity_category": "diagnostic",
+                "availability_topic": f"{self.prefix}/availability", "state_topic": f"{self.prefix}/version",
+                "value_template": "{{ value if value | length <= 255 else 'None' }}"}
 
     async def _publish_delay(self, client: Any) -> None:
         await client.publish(f"{self.prefix}/action_refresh_delay/state", str(self.action_refresh_delay), qos=1, retain=True)
@@ -354,6 +458,9 @@ class MqttControl(control.Control):
         await client.publish(f"{self.discovery_prefix}/number/{self._entity_prefix}/action_refresh_delay/config",
                              json.dumps(self._delay_discovery()), qos=1, retain=True)
         await self._publish_delay(client)
+        await client.publish(f"{self.discovery_prefix}/sensor/{self._entity_prefix}/version/config",
+                             json.dumps(self._version_discovery()), qos=1, retain=True)
+        await client.publish(f"{self.prefix}/version", __version__, qos=1, retain=True)
         try:
             vehicles = await self.app._get_vehicle_list() if self.app.authorized else []
         except Exception:

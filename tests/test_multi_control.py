@@ -377,7 +377,7 @@ class MultiControlTests(unittest.IsolatedAsyncioTestCase):
         online_index = next(i for i, call in enumerate(publications) if call.args[1] == "online")
         deleted = [call.args[0] for call in publications[:online_index] if call.args[1] == ""]
         self.assertIn(f"teslabot/{old}/state", deleted)
-        self.assertEqual(sum(topic.endswith("/config") for topic in deleted), 8)
+        self.assertEqual(set(deleted), {mqtt._config_topic(old, key) for key in mqtt._discovery(old, "")} | {f"teslabot/{old}/state"})
         self.assertEqual(json.loads(self.state["mqtt_owned"][mqtt._manifest_key]), [new])
         self.assertEqual(json.loads(self.state["mqtt_owned"]["unrelated"]), [old])
         self.app._auth_changed(False)

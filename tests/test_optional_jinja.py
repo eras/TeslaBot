@@ -33,6 +33,8 @@ assert mqtt.jinja2 is None and timestamp.jinja2 is None
 suite = loader.loadTestsFromNames([
     "tests.test_action_refresh_timestamp.RefreshTimestampTests",
     "tests.test_mqtt.TestMqtt",
+    "tests.test_expanded_telemetry.ExpandedTelemetryTests",
+    "tests.test_expanded_telemetry.InstanceVersionTests",
 ])
 output = io.StringIO()
 result = unittest.TextTestRunner(stream=output, verbosity=2).run(suite)
@@ -40,6 +42,7 @@ assert result.wasSuccessful(), output.getvalue()
 assert {test.id() for test, reason in result.skipped} == {
     "tests.test_action_refresh_timestamp.RefreshTimestampTests.test_optional_ha_template_renders_observed_utc_timestamp",
     "tests.test_mqtt.TestMqtt.test_ac_template_resets_unknown_state",
+    "tests.test_expanded_telemetry.ExpandedTelemetryTests.test_optional_templates_reset_known_zero_false_unknown_and_older_payloads",
 }, output.getvalue()
 for name in (
     "test_all_automatic_reads_update_ha_timestamp_like_manual_even_unchanged",
@@ -48,7 +51,7 @@ for name in (
 ):
     assert name + " " in output.getvalue() and name in output.getvalue()
 assert result.testsRun - len(result.skipped) >= 3
-print("Discovery imports successfully; core timestamps pass; only two optional rendering checks skip")
+print("Discovery imports successfully; core timestamps pass; expanded telemetry passes; only three optional rendering checks skip")
 '''
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
