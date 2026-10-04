@@ -1,3 +1,8 @@
+# Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for components, runtime flows,
+configuration, persistence, integrations, and development entry points.
+
 # Commit Policy
 
 - After completing and verifying a task that changes files, always commit the
