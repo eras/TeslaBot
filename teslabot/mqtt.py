@@ -105,11 +105,11 @@ class MqttControl(control.Control):
                                         device_class="timestamp"),
             "switch/ac": dict(common, name="Climate", unique_id=f"teslabot_{vehicle_id}_ac",
                               state_topic=state, value_template="{{ 'ON' if value_json.climate_on is sameas true else 'OFF' if value_json.climate_on is sameas false else 'None' }}",
-                              command_topic=f"{base}/ac/set", payload_on="ON", payload_off="OFF"),
+                              command_topic=f"{base}/ac/set", payload_on="ON", payload_off="OFF", optimistic=True),
             "number/charge_limit": dict(common, name="Charge limit", unique_id=f"teslabot_{vehicle_id}_charge_limit",
                                         state_topic=state, value_template="{{ value_json.charge_limit }}",
                                         command_topic=f"{base}/charge_limit/set", min=0, max=100, step=1,
-                                        unit_of_measurement="%"),
+                                        unit_of_measurement="%", optimistic=True),
             "button/refresh": dict(common, name="Refresh", unique_id=f"teslabot_{vehicle_id}_refresh",
                                    command_topic=f"{base}/refresh/set"),
             "button/sauna_on": dict(common, name="Max defrost on", unique_id=f"teslabot_{vehicle_id}_sauna_on",
@@ -285,7 +285,7 @@ class MqttControl(control.Control):
         if not self._valid(session, vehicle_id, token):
             return
         await client.publish(f"{self.prefix}/{vehicle_id}/result", json.dumps(asdict(result)), qos=0)
-        if result.success and self._valid(session, vehicle_id, token):
+        if self._valid(session, vehicle_id, token):
             if delay == 0:
                 await self._observe(session, vehicle_id, token)
             else:

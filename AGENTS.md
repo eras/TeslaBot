@@ -1,3 +1,10 @@
+# Commit Policy
+
+- After completing and verifying a task that changes files, always commit the
+  task's changes without waiting for a separate commit request.
+- Stage only files belonging to the task. Leave unrelated changes untouched,
+  and never commit secrets or temporary/generated agent files.
+
 # Logging Policy
 
 - Preserve diagnostic information in logs. Do not remove payloads, command

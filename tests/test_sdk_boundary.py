@@ -393,7 +393,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.app.authorized)
         self.assert_worker_requests()
 
-    async def test_failed_mqtt_actions_do_not_refresh_or_change_prior_state(self):
+    async def test_failed_mqtt_actions_refresh_observed_state(self):
         await self.handle("refresh", "")
         prior = dict(self.retained)
         for mode in ("rejected", "http", "timeout"):
@@ -405,11 +405,16 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     self.publications.clear()
                     reads = self.http.data_reads
                     await self.handle(operation, payload)
-                    self.assertEqual(len(self.publications), 1)
+                    self.assertEqual(len(self.publications), 2)
                     self.assertTrue(self.publications[0][0].endswith("/result"))
                     self.assertFalse(self.publications[0][1]["success"])
-                    self.assertEqual(self.http.data_reads, reads)
-                    self.assertEqual(self.retained, prior)
+                    self.assertEqual(self.http.data_reads, reads + 1)
+                    self.assertTrue(self.publications[1][0].endswith("/state"))
+                    observed = json.loads(self.retained[self.publications[1][0]])
+                    previous = json.loads(prior[self.publications[1][0]])
+                    observed.pop("observed_at")
+                    previous.pop("observed_at")
+                    self.assertEqual(observed, previous)
         self.assert_worker_requests()
 
     async def test_followup_read_failure_preserves_truthful_acceptance_and_prior_state(self):

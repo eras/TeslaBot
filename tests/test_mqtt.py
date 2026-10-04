@@ -73,7 +73,7 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.publish.await_args_list[0].args[0], "teslabot/id1/result")
         self.assertEqual(self.client.publish.await_args_list[1].args[0], "teslabot/id1/state")
 
-    async def test_invalid_limit_and_failed_action_do_not_refresh(self) -> None:
+    async def test_invalid_limit_does_not_refresh_but_failed_action_does(self) -> None:
         await self.control._handle(self.client, "teslabot/id1/charge_limit/set", "101", False)
         self.app.set_charge_limit.assert_not_awaited()
         self.app.refresh_vehicle.assert_not_awaited()
@@ -81,8 +81,10 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.client.publish.reset_mock()
         self.app.set_ac.return_value = ActionResult("id1", "ac", True, False, "rejected")
         await self.control._handle(self.client, "teslabot/id1/ac/set", "ON", False)
-        self.app.refresh_vehicle.assert_not_awaited()
-        self.assertEqual(self.client.publish.await_count, 1)
+        self.app.refresh_vehicle.assert_awaited_once_with(None, vehicle_id="id1")
+        self.assertEqual(self.client.publish.await_count, 2)
+        self.assertFalse(json.loads(self.client.publish.await_args_list[0].args[1])["success"])
+        self.assertEqual(self.client.publish.await_args_list[1].args[0], "teslabot/id1/state")
 
     async def test_followup_read_failure_does_not_publish_requested_state(self) -> None:
         self.app.set_ac.return_value = ActionResult("id1", "ac", True, True)
@@ -102,6 +104,14 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.assertIn("is sameas false", entities["switch/ac"]["value_template"])
         self.assertIn("else 'None'", entities["switch/ac"]["value_template"])
 
+    def test_stateful_controls_are_optimistic_with_observed_state_topics(self) -> None:
+        entities = self.control._discovery("id1", "Test vehicle")
+        for key in ("switch/ac", "number/charge_limit"):
+            self.assertTrue(entities[key]["optimistic"])
+            self.assertEqual(entities[key]["state_topic"], "teslabot/id1/state")
+        for key in ("button/sauna_on", "button/sauna_off"):
+            self.assertNotIn("optimistic", entities[key])
+
     def test_ac_template_resets_unknown_state(self) -> None:
         if jinja2 is None:
             self.skipTest("Jinja2 is needed to render HA templates")
@@ -112,12 +122,12 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
                     for value in observed]
         self.assertEqual(rendered, ["ON", "None", "OFF", "None", "ON", "None"])
 
-    async def test_failed_selection_uses_requested_id_without_refresh(self) -> None:
+    async def test_failed_selection_uses_requested_id_for_followup_refresh(self) -> None:
         self.app.set_ac.return_value = ActionResult("id1", "ac", True, False, "Vehicle identity not found")
         await self.control._handle(self.client, "teslabot/id1/ac/set", "ON", False)
         self.app.set_ac.assert_awaited_once_with(None, True, vehicle_id="id1")
-        self.assertEqual(json.loads(self.client.publish.await_args.args[1])["vehicle_id"], "id1")
-        self.app.refresh_vehicle.assert_not_awaited()
+        self.assertEqual(json.loads(self.client.publish.await_args_list[0].args[1])["vehicle_id"], "id1")
+        self.app.refresh_vehicle.assert_awaited_once_with(None, vehicle_id="id1")
 
     async def test_connection_discovery_and_graceful_shutdown(self) -> None:
         online = asyncio.Event()

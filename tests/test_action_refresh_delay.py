@@ -195,9 +195,61 @@ class DelayTests(unittest.IsolatedAsyncioTestCase):
             await self.clock.next()
             async def failed(*args, **kwargs): return tesla.ActionResult(self.id1, "ac", False, False, "rejected detail")
             self.app.set_ac.side_effect = failed
+            superseded = self.session.jobs[self.id1]
             await self.handle("ac", "OFF")
-            self.assertNotIn(self.id1, self.session.jobs)
+            replacement = await self.clock.next()
+            self.assertTrue(superseded.cancelled())
+            self.assertFalse(json.loads(self.broker.publications[-1][1])["success"])
             self.assertEqual(self.app.refresh_vehicle.await_count, 2)
+            await self.release_job(replacement)
+            self.assertEqual(self.app.refresh_vehicle.await_count, 3)
+
+    async def test_failed_actions_refresh_after_delay_or_immediately_in_zero_mode(self):
+        with self.clock.install():
+            for delay in (10, 0):
+                self.mqtt.action_refresh_delay = delay
+                for operation, payload in (("ac", "ON"), ("sauna", "OFF"), ("charge_limit", "70")):
+                    for raises in (False, True):
+                        with self.subTest(delay=delay, operation=operation, raises=raises):
+                            action = getattr(self.app, "set_" + operation)
+                            action.side_effect = (tesla.AppException("failure detail") if raises else None)
+                            action.return_value = tesla.ActionResult(self.id1, operation, payload, False, "failure detail")
+                            self.broker.publications.clear()
+                            before = self.app.refresh_vehicle.await_count
+                            await self.handle(operation, payload)
+                            result = json.loads(self.broker.publications[0][1])
+                            self.assertFalse(result["success"])
+                            self.assertEqual(result["error"], "failure detail")
+                            if delay:
+                                event = await self.clock.next()
+                                self.assertGreater(self.clock.waits[-1][0], 9.9)
+                                self.assertLessEqual(self.clock.waits[-1][0], 10)
+                                self.assertEqual(self.app.refresh_vehicle.await_count, before)
+                                self.assertEqual(self.state_publications(), [])
+                                await self.release_job(event)
+                            self.assertEqual(self.app.refresh_vehicle.await_count, before + 1)
+                            state = json.loads(self.state_publications()[0][1])
+                            self.assertFalse(state["climate_on"])
+                            self.assertEqual(state["charge_limit"], 90)
+
+    async def test_failed_action_and_failed_followup_preserve_prior_state_and_result(self):
+        await self.handle("refresh", "")
+        prior = dict(self.broker.retained)
+        self.app.set_ac.side_effect = None
+        self.app.set_ac.return_value = tesla.ActionResult(self.id1, "ac", True, False, "command failure detail")
+        self.app.refresh_vehicle.side_effect = tesla.AppException("read failure detail")
+        self.broker.publications.clear()
+        with self.clock.install():
+            await self.handle()
+            event = await self.clock.next()
+            with self.assertLogs("teslabot.mqtt", "WARNING") as logs:
+                await self.release_job(event)
+        self.assertIn("read failure detail", "\n".join(logs.output))
+        self.assertEqual(self.broker.retained, prior)
+        self.assertEqual(len(self.broker.publications), 1)
+        result = json.loads(self.broker.publications[0][1])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "command failure detail")
 
     async def test_manual_refresh_and_zero_mode_are_immediate_and_ordered(self):
         with self.clock.install():
