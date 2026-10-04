@@ -56,16 +56,17 @@ TODO: make these instructions a bit more complete
 
 Invite the bot to the room in the configuration.
 
-Set environment variables: 
-  - ENVIRONMENT: if running on google cloud, use gcp
-  - CHANNEL: slack channel
-  - SLACK_ADMIN_CHANNEL_ID: Channel's id that's used for authentication
-  - CONTROL: slack
-  - EMAIL: tesla login email
-  - STORAGE: type of storage (local / firestore)
-  - GCP_PROJECT_ID: speaks for itself
-  - SLACK_APP_SECRET_ID: secret id for retrieving slack app key in google secret manager
-  - SLACK_API_SECRET_ID: secret id for retrieving slack api key in google secret manager
+Set environment variables:
+
+- ENVIRONMENT: if running on google cloud, use gcp
+- CHANNEL: slack channel
+- SLACK_ADMIN_CHANNEL_ID: Channel's id that's used for authentication
+- CONTROL: slack
+- EMAIL: tesla login email
+- STORAGE: type of storage (local / firestore)
+- GCP_PROJECT_ID: speaks for itself
+- SLACK_APP_SECRET_ID: secret id for retrieving slack app key in google secret manager
+- SLACK_API_SECRET_ID: secret id for retrieving slack api key in google secret manager
 
 Firestore requires the bot to be run on gcp, because authentication is done automatically there.
 
@@ -148,18 +149,18 @@ reliable max-defrost state. Vehicle topic IDs are stable hashes of the VIN,
 falling back to the display name when no VIN is supplied. The topic prefix is
 `teslabot` by default. Commands are non-retained messages to:
 
-| Topic | Payload |
-|-------|---------|
-| `teslabot/<id>/refresh/set` | Any payload; fetch vehicle state |
-| `teslabot/<id>/ac/set` | `ON` or `OFF` |
-| `teslabot/<id>/sauna/set` | `ON` or `OFF` |
-| `teslabot/<id>/charge_limit/set` | Integer `0` through `100` |
-| `teslabot/<id>/seat_heater_left/set` | Integer `0` through `3` |
-| `teslabot/<id>/seat_heater_right/set` | Integer `0` through `3` |
-| `teslabot/<id>/seat_heater_rear_left/set` | Integer `0` through `3` |
-| `teslabot/<id>/seat_heater_rear_center/set` | Integer `0` through `3` |
-| `teslabot/<id>/seat_heater_rear_right/set` | Integer `0` through `3` |
-| `teslabot/<id>/steering_wheel_heater/set` | `ON` or `OFF` |
+| Topic                                       | Payload                          |
+| ------------------------------------------- | -------------------------------- |
+| `teslabot/<id>/refresh/set`                 | Any payload; fetch vehicle state |
+| `teslabot/<id>/ac/set`                      | `ON` or `OFF`                    |
+| `teslabot/<id>/sauna/set`                   | `ON` or `OFF`                    |
+| `teslabot/<id>/charge_limit/set`            | Integer `0` through `100`        |
+| `teslabot/<id>/seat_heater_left/set`        | Integer `0` through `3`          |
+| `teslabot/<id>/seat_heater_right/set`       | Integer `0` through `3`          |
+| `teslabot/<id>/seat_heater_rear_left/set`   | Integer `0` through `3`          |
+| `teslabot/<id>/seat_heater_rear_center/set` | Integer `0` through `3`          |
+| `teslabot/<id>/seat_heater_rear_right/set`  | Integer `0` through `3`          |
+| `teslabot/<id>/steering_wheel_heater/set`   | `ON` or `OFF`                    |
 
 The retained `teslabot/<id>/state` JSON contains observed values and
 `observed_at`. Non-retained `teslabot/<id>/result` reports action outcomes.
@@ -193,21 +194,21 @@ heater readings become unknown, rather than being inferred from a command.
 Each successful manual or action-follow-up observation also updates these
 read-only Home Assistant entities from the same retained vehicle state:
 
-| Information | State fields and units |
-|-------------|------------------------|
-| Inside/outside temperature | `inside_temp`, `outside_temp`, Celsius regardless of GUI units |
-| Charge current limit | Existing `charge_amps`, requested current in A, not actual current draw |
-| Charging power | `charger_power_kw`, kW |
-| Range-added charging rate | `charge_rate_kmh`, km of range added per charging hour, not amps or road speed |
-| Estimated charge completion | `charge_finish_eta`, aware UTC ISO timestamp while Charging only |
-| Odometer | `odometer_km`, km with fractional precision |
-| Four tire pressures | `tpms_pressure_fl/fr/rl/rr`, bar; a measured zero remains zero |
+| Information                 | State fields and units                                                                                                      |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Inside/outside temperature  | `inside_temp`, `outside_temp`, Celsius regardless of GUI units                                                              |
+| Charge current limit        | Existing `charge_amps`, requested current in A, not actual current draw                                                     |
+| Charging power              | `charger_power_kw`, kW                                                                                                      |
+| Range-added charging rate   | `charge_rate_kmh`, km of range added per charging hour, not amps or road speed                                              |
+| Estimated charge completion | `charge_finish_eta`, aware UTC ISO timestamp while Charging only                                                            |
+| Odometer                    | `odometer_km`, km with fractional precision                                                                                 |
+| Four tire pressures         | `tpms_pressure_fl/fr/rl/rr`, bar; a measured zero remains zero                                                              |
 | Software update information | `software_update_status/version`, `software_update_download_percent/install_percent`, `software_update_expected_duration_s` |
-| Door lock | `locked`, true means locked in JSON; HA's lock binary sensor is OFF when locked, ON when unlocked |
-| Four doors | `door_driver_front/rear_open`, `door_passenger_front/rear_open` |
-| Four windows | `window_driver_front/rear_open`, `window_passenger_front/rear_open` |
-| Other openings | `frunk_open`, `trunk_open`, `charge_port_door_open` |
-| Car firmware | `car_version`, including the complete observed version/hash |
+| Door lock                   | `locked`, true means locked in JSON; HA's lock binary sensor is OFF when locked, ON when unlocked                           |
+| Four doors                  | `door_driver_front/rear_open`, `door_passenger_front/rear_open`                                                             |
+| Four windows                | `window_driver_front/rear_open`, `window_passenger_front/rear_open`                                                         |
+| Other openings              | `frunk_open`, `trunk_open`, `charge_port_door_open`                                                                         |
+| Car firmware                | `car_version`, including the complete observed version/hash                                                                 |
 
 Seats and tires use physical left/right labels. Doors and windows use
 driver/passenger labels, including on right-hand-drive vehicles. Opening code
@@ -262,10 +263,10 @@ publication.
 Home Assistant discovery adds one instance-level **Action refresh delay**
 configuration number on the TeslaBot device. Its exact topics are:
 
-| Topic | Contract |
-|-------|----------|
-| `<prefix>/action_refresh_delay/set` | Non-retained ASCII decimal integer `0..300` |
-| `<prefix>/action_refresh_delay/state` | Retained committed integer seconds, QoS 1 |
+| Topic                                 | Contract                                    |
+| ------------------------------------- | ------------------------------------------- |
+| `<prefix>/action_refresh_delay/set`   | Non-retained ASCII decimal integer `0..300` |
+| `<prefix>/action_refresh_delay/state` | Retained committed integer seconds, QoS 1   |
 
 Command payloads reject signs, spaces, leading zeros except `0`, fractions,
 booleans, Unicode digits, and nonfinite values. Ordinary INI whitespace is
@@ -393,9 +394,11 @@ emacs tesla-data/config.ini # edit for your needs
 # Also consider --restart always
 docker run -ti --name teslabot -d -v $PWD/teslabot-data:/data ghcr.io/eras/teslabot:latest
 ```
+
 You should not use `latest` but the correct version tag. The image currently weighs around 130MB, so it's not tiny, but not huge either.
 
 You can build the Docker image yourself with:
+
 ```
 git pull https://github.com/eras/TeslaBot
 cd TeslaBot
@@ -428,10 +431,10 @@ You can use e.g. `screen`, `tmux` or `systemd` to arrange this process to run on
 
 ## Commands
 
-Note that by default you need to prefix commands with ```!```.
+Note that by default you need to prefix commands with `!`.
 
 | command                                     | description                                                                                                                                    |
-|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | help                                        | Show the list of commands supported.                                                                                                           |
 | authorize                                   | Start the authorization flow. Works only in admin room (though you could only have one and same for control and admin).                        |
 | authorize url                               | Last phase of the authorization flow.                                                                                                          |
