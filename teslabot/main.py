@@ -27,7 +27,7 @@ async def async_main() -> None:
     logger.setLevel(log.INFO)
 
     scheduler. logger.setLevel(log.INFO)
-    tesla.     logger.setLevel(log.DEBUG)
+    #tesla.     logger.setLevel(log.DEBUG)
     control.   logger.setLevel(log.INFO)
 
     logger.info(f"Version: {__version__}")
