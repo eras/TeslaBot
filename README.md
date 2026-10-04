@@ -141,7 +141,8 @@ to a remote broker.
 
 TeslaBot publishes retained Home Assistant MQTT discovery configurations for
 each vehicle: battery and charging sensors, a last-refresh timestamp, climate
-switch, charge-limit number, refresh button, and separate max-defrost on/off
+switch, charge-limit number, five seat-heater numbers (0 off through 3 high),
+steering wheel heater switch, refresh button, and separate max-defrost on/off
 buttons. The latter are buttons because not all vehicle responses expose a
 reliable max-defrost state. Vehicle topic IDs are stable hashes of the VIN,
 falling back to the display name when no VIN is supplied. The topic prefix is
@@ -153,6 +154,12 @@ falling back to the display name when no VIN is supplied. The topic prefix is
 | `teslabot/<id>/ac/set` | `ON` or `OFF` |
 | `teslabot/<id>/sauna/set` | `ON` or `OFF` |
 | `teslabot/<id>/charge_limit/set` | Integer `0` through `100` |
+| `teslabot/<id>/seat_heater_left/set` | Integer `0` through `3` |
+| `teslabot/<id>/seat_heater_right/set` | Integer `0` through `3` |
+| `teslabot/<id>/seat_heater_rear_left/set` | Integer `0` through `3` |
+| `teslabot/<id>/seat_heater_rear_center/set` | Integer `0` through `3` |
+| `teslabot/<id>/seat_heater_rear_right/set` | Integer `0` through `3` |
+| `teslabot/<id>/steering_wheel_heater/set` | `ON` or `OFF` |
 
 The retained `teslabot/<id>/state` JSON contains observed values and
 `observed_at`. Non-retained `teslabot/<id>/result` reports action outcomes.
@@ -162,7 +169,8 @@ trigger a single follow-up read after a configurable settling delay; a failed
 or delayed read never substitutes the requested value for observed state.
 Old retained readings may be stale after a restart;
 use the last-refresh sensor to assess freshness. Location is not published.
-The Home Assistant climate switch and charge-limit number are optimistic: they
+The Home Assistant climate and steering wheel heater switches, charge-limit
+number, and seat-heater numbers are optimistic: they
 display the requested value immediately, then reconcile with the next observed
 state. Max defrost uses stateless ON/OFF buttons, which have no optimistic state.
 If the follow-up read fails, the optimistic display may persist until a later
@@ -174,6 +182,12 @@ time. Failed, cancelled, or superseded reads do not initiate a new timestamp
 publication; packets already submitted to the broker cannot be recalled.
 Chat commands do not automatically update MQTT state.
 
+Seat controls retain the existing `seat_heater_left/right/rear_left/rear_center/rear_right`
+state fields, with integer levels 0 through 3. Discovery removes the old seat
+sensor definitions and replaces them with number controls. Steering wheel heat
+is observed from `steering_wheel_heater` as a boolean. Unsupported or missing
+heater readings become unknown, rather than being inferred from a command.
+
 ### Read-Only Telemetry
 
 Each successful manual or action-follow-up observation also updates these
@@ -181,7 +195,6 @@ read-only Home Assistant entities from the same retained vehicle state:
 
 | Information | State fields and units |
 |-------------|------------------------|
-| Five seat warmers | `seat_heater_left/right/rear_left/rear_center/rear_right`, integer levels 0 (off) through 3 |
 | Inside/outside temperature | `inside_temp`, `outside_temp`, Celsius regardless of GUI units |
 | Charge current limit | Existing `charge_amps`, requested current in A, not actual current draw |
 | Charging power | `charger_power_kw`, kW |

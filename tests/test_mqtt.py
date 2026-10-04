@@ -167,6 +167,6 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
                 await task
         self.assertEqual(client.publications[-1], ("teslabot/availability", "offline"))
         configs = [c for c in client.publications if c[0].endswith("/config")]
-        self.assertEqual(len(configs), len(self.control._discovery("id1", "Test vehicle")) + 2)
+        self.assertEqual(len(configs), len(self.control._discovery("id1", "Test vehicle")) + 2 + 5)
         self.assertIn("homeassistant/sensor/teslabot/version/config", [topic for topic, _ in configs])
         self.app.refresh_vehicle.assert_not_awaited()

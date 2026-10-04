@@ -116,6 +116,16 @@ def vehicle_display_name(vehicle: collections.abc.Mapping[str, Any]) -> str:
     return name if isinstance(name, str) and name else "Unnamed vehicle"
 
 
+# Tesla's heater index 3 is unused; the rear center and right seats are 4 and 5.
+SEAT_HEATER_IDS = {
+    "seat_heater_left": 0,
+    "seat_heater_right": 1,
+    "seat_heater_rear_left": 2,
+    "seat_heater_rear_center": 4,
+    "seat_heater_rear_right": 5,
+}
+
+
 @dataclass
 class VehicleSnapshot:
     vehicle_id: str
@@ -162,6 +172,7 @@ class VehicleSnapshot:
     trunk_open: Optional[bool] = None
     charge_port_door_open: Optional[bool] = None
     car_version: Optional[str] = None
+    steering_wheel_heater: Optional[bool] = None
 
 
 @dataclass
@@ -1169,6 +1180,7 @@ class App(ControlCallback):
             seat_heater_rear_left=level(climate.get("seat_heater_rear_left")),
             seat_heater_rear_center=level(climate.get("seat_heater_rear_center")),
             seat_heater_rear_right=level(climate.get("seat_heater_rear_right")),
+            steering_wheel_heater=boolean(climate.get("steering_wheel_heater")),
             charger_power_kw=measurement(charge.get("charger_power")),
             charge_rate_kmh=measurement(charge.get("charge_rate"), scale=1.609344),
             charge_finish_eta=eta,
@@ -1255,6 +1267,30 @@ class App(ControlCallback):
         command, kwargs = op.get_command()
         return await self._perform_action(vehicle_name, "charge_limit", percent,
                                           command, kwargs, context, vehicle_id)
+
+    async def set_seat_heater(
+        self, vehicle_name: Optional[str], seat: str, level: int,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        if seat not in SEAT_HEATER_IDS:
+            raise ArgException(f"Unknown seat heater: {seat}")
+        if type(level) is not int or not 0 <= level <= 3:
+            raise ArgException("Seat heater level must be an integer from 0 to 3")
+        return await self._perform_action(vehicle_name, seat, level,
+                                          "REMOTE_SEAT_HEATER_REQUEST",
+                                          {"heater": SEAT_HEATER_IDS[seat], "level": level}, context, vehicle_id)
+
+    async def set_steering_wheel_heater(
+        self, vehicle_name: Optional[str], enabled: bool,
+        context: Optional[CommandContext] = None,
+        vehicle_id: Optional[str] = None,
+    ) -> ActionResult:
+        if type(enabled) is not bool:
+            raise ArgException("Steering wheel heater state must be a boolean")
+        return await self._perform_action(vehicle_name, "steering_wheel_heater", enabled,
+                                          "REMOTE_STEERING_WHEEL_HEATER_REQUEST",
+                                          {"on": enabled}, context, vehicle_id)
 
     async def _command_info(self, context: CommandContext, args: InfoArgs) -> None:
         (delta_kwd, vehicle_name), _ = args

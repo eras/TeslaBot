@@ -308,7 +308,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.session.active = True
         calls = len(self.http.calls)
         publications = len(self.fixture.fixture.publications)
-        for operation in ("seat_heater_left", "locked", "software_update", "door_driver_front_open", "version"):
+        for operation in ("locked", "software_update", "door_driver_front_open", "version"):
             await self.fixture.handle(operation, "ON")
         self.assertEqual(len(self.http.calls), calls)
         self.assertEqual(len(self.fixture.fixture.publications), publications)
@@ -316,12 +316,13 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_discovery_exact_readonly_entities_units_labels_and_namespace(self):
         identity = self.fixture.fixture.identity
         configs = self.mqtt._discovery(identity, "Synthetic car")
-        self.assertEqual(set(configs), LEGACY_ENTITIES | {"sensor/" + key for key in SCALARS} | {"binary_sensor/" + key for key in BINARIES})
+        heaters = {"number/" + key for key in SEATS} | {"switch/steering_wheel_heater"}
+        self.assertEqual(set(configs), LEGACY_ENTITIES | heaters | {"sensor/" + key for key in SCALARS - set(SEATS)} | {"binary_sensor/" + key for key in BINARIES})
         for key, config in configs.items():
             self.assertEqual(config["availability_topic"], "teslabot/availability")
             self.assertEqual(config["device"]["identifiers"], ["teslabot_" + identity])
             self.assertNotIn("sw_version", config["device"])
-            if key not in LEGACY_ENTITIES:
+            if key not in LEGACY_ENTITIES | heaters:
                 self.assertNotIn("command_topic", config)
                 self.assertEqual(config["state_topic"], self.topic)
                 self.assertEqual(config["unique_id"], f"teslabot_{identity}_{key.split('/')[1]}")
@@ -341,11 +342,11 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((config.get("device_class"), config.get("unit_of_measurement"), config.get("state_class")),
                              (device_class, unit, state_class))
         for key in SEATS:
-            self.assertNotIn("Driver", configs["sensor/" + key]["name"])
-            self.assertNotIn("Passenger", configs["sensor/" + key]["name"])
-            self.assertNotIn("state_class", configs["sensor/" + key])
-        self.assertEqual(configs["sensor/seat_heater_left"]["name"], "Front left seat heat level")
-        self.assertEqual(configs["sensor/seat_heater_rear_center"]["name"], "Rear center seat heat level")
+            self.assertNotIn("Driver", configs["number/" + key]["name"])
+            self.assertNotIn("Passenger", configs["number/" + key]["name"])
+            self.assertNotIn("state_class", configs["number/" + key])
+        self.assertEqual(configs["number/seat_heater_left"]["name"], "Front left seat heat level")
+        self.assertEqual(configs["number/seat_heater_rear_center"]["name"], "Rear center seat heat level")
         for key in BINARIES:
             device_class = "lock" if key == "locked" else "door" if key.startswith("door_") else "window" if key.startswith("window_") else "opening"
             self.assertEqual(configs["binary_sensor/" + key]["device_class"], device_class)
@@ -371,7 +372,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         env = jinja2.Environment()
         _, state = await self.observe()
         for key in SCALARS:
-            template = env.from_string(configs["sensor/" + key]["value_template"])
+            template = env.from_string(configs[("number/" if key in SEATS else "sensor/") + key]["value_template"])
             for value in (state[key], 0 if key not in TEXT + ("charge_finish_eta",) else "synthetic text", None, state[key]):
                 rendered = template.render(value_json={key: value})
                 self.assertEqual(rendered, str(value) if value is not None else "None", key)
@@ -386,6 +387,11 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
                     "ON" if value is True else "OFF" if value is False else "None")
                 self.assertEqual(template.render(value_json={key: value}), expected)
             self.assertEqual(template.render(value_json={}), "None")
+        template = env.from_string(configs["switch/steering_wheel_heater"]["value_template"])
+        for value in (True, False, None, 0, 1, "false"):
+            expected = "ON" if value is True else "OFF" if value is False else "None"
+            self.assertEqual(template.render(value_json={"steering_wheel_heater": value}), expected)
+        self.assertEqual(template.render(value_json={}), "None")
 
 
 class InstanceVersionTests(unittest.IsolatedAsyncioTestCase):
@@ -439,7 +445,7 @@ class InstanceVersionTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(kwargs, {"qos": 1, "retain": True})
                 if authorized:
                     deleted = {topic for topic, payload, _ in broker.publications if payload == ""}
-                    self.assertEqual(deleted, {mqtt._config_topic(old, key) for key in mqtt._discovery(old, "")} | {f"teslabot/{old}/state"})
+                    self.assertEqual(deleted, {mqtt._config_topic(old, key) for key in mqtt._discovery(old, "")} | {mqtt._config_topic(old, "sensor/" + key) for key in SEATS} | {f"teslabot/{old}/state"})
                     self.assertLess(next(i for i, entry in enumerate(broker.publications) if entry[0] == "teslabot/version"),
                                     next(i for i, entry in enumerate(broker.publications) if entry[1] == "online"))
             other = fixture.build({"prefix": "other/instance", "discovery_prefix": "custom/discovery"})

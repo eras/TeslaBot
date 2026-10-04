@@ -13,7 +13,7 @@ import teslapy
 import urllib.error
 import urllib3.exceptions
 
-from . import __version__, control, log
+from . import __version__, control, log, tesla
 from .env import Env
 from .tesla import ActionResult, App, AppException, VehicleSnapshot, is_transient_error, vehicle_display_name
 
@@ -117,6 +117,23 @@ class MqttControl(control.Control):
             "button/sauna_off": dict(common, name="Max defrost off", unique_id=f"teslabot_{vehicle_id}_sauna_off",
                                      command_topic=f"{base}/sauna/set", payload_press="OFF"),
         }
+        for key, label in {
+            "seat_heater_left": "Front left seat heat level",
+            "seat_heater_right": "Front right seat heat level",
+            "seat_heater_rear_left": "Rear left seat heat level",
+            "seat_heater_rear_center": "Rear center seat heat level",
+            "seat_heater_rear_right": "Rear right seat heat level",
+        }.items():
+            entities[f"number/{key}"] = dict(
+                common, name=label, unique_id=f"teslabot_{vehicle_id}_{key}",
+                state_topic=state,
+                value_template="{{ value_json.get('" + key + "') if value_json.get('" + key + "') is not none else 'None' }}",
+                command_topic=f"{base}/{key}/set", min=0, max=3, step=1, optimistic=True)
+        entities["switch/steering_wheel_heater"] = dict(
+            common, name="Steering wheel heater", unique_id=f"teslabot_{vehicle_id}_steering_wheel_heater",
+            state_topic=state,
+            value_template="{{ 'ON' if value_json.get('steering_wheel_heater') is sameas true else 'OFF' if value_json.get('steering_wheel_heater') is sameas false else 'None' }}",
+            command_topic=f"{base}/steering_wheel_heater/set", payload_on="ON", payload_off="OFF", optimistic=True)
         # Fixed public telemetry definitions, never inferred from raw SDK data.
         sensors = {
             "inside_temp": ("Inside temperature", "temperature", "\u00b0C", "measurement"),
@@ -126,11 +143,6 @@ class MqttControl(control.Control):
             "charge_rate_kmh": ("Charge range added rate", "speed", "km/h", "measurement"),
             "charge_finish_eta": ("Estimated charge completion", "timestamp", None, None),
             "odometer_km": ("Odometer", "distance", "km", "total_increasing"),
-            "seat_heater_left": ("Front left seat heat level", None, None, None),
-            "seat_heater_right": ("Front right seat heat level", None, None, None),
-            "seat_heater_rear_left": ("Rear left seat heat level", None, None, None),
-            "seat_heater_rear_center": ("Rear center seat heat level", None, None, None),
-            "seat_heater_rear_right": ("Rear right seat heat level", None, None, None),
             "tpms_pressure_fl": ("Front left tire pressure", "pressure", "bar", "measurement"),
             "tpms_pressure_fr": ("Front right tire pressure", "pressure", "bar", "measurement"),
             "tpms_pressure_rl": ("Rear left tire pressure", "pressure", "bar", "measurement"),
@@ -202,6 +214,7 @@ class MqttControl(control.Control):
             "seat_heater_rear_left": snapshot.seat_heater_rear_left,
             "seat_heater_rear_center": snapshot.seat_heater_rear_center,
             "seat_heater_rear_right": snapshot.seat_heater_rear_right,
+            "steering_wheel_heater": snapshot.steering_wheel_heater,
             "charger_power_kw": snapshot.charger_power_kw,
             "charge_rate_kmh": snapshot.charge_rate_kmh,
             "charge_finish_eta": snapshot.charge_finish_eta,
@@ -246,12 +259,18 @@ class MqttControl(control.Control):
         action_topic = "/".join(parts[-2:])
         if vehicle_id not in self.vehicles:
             return
-        if action_topic not in ("refresh/set", "ac/set", "sauna/set", "charge_limit/set"):
+        if parts[-1] != "set":
+            return
+        action = parts[-2]
+        if action_topic not in ("refresh/set", "ac/set", "sauna/set", "charge_limit/set", "steering_wheel_heater/set") and action not in tesla.SEAT_HEATER_IDS:
             return
         try:
             if action_topic == "charge_limit/set":
                 if not re.fullmatch(r"0|[1-9][0-9]{0,2}", payload) or int(payload) > 100:
                     raise ValueError("Charge limit must be an integer from 0 to 100")
+            elif action in tesla.SEAT_HEATER_IDS:
+                if not re.fullmatch(r"[0-3]", payload):
+                    raise ValueError("Seat heater level must be an integer from 0 to 3")
             elif action_topic != "refresh/set" and payload not in ("ON", "OFF"):
                 raise ValueError("Expected ON or OFF")
         except ValueError as exn:
@@ -271,6 +290,10 @@ class MqttControl(control.Control):
         try:
             if action_topic == "charge_limit/set":
                 result = await self.app.set_charge_limit(None, int(payload), vehicle_id=vehicle_id)
+            elif action in tesla.SEAT_HEATER_IDS:
+                result = await self.app.set_seat_heater(None, action, int(payload), vehicle_id=vehicle_id)
+            elif action_topic == "steering_wheel_heater/set":
+                result = await self.app.set_steering_wheel_heater(None, payload == "ON", vehicle_id=vehicle_id)
             else:
                 enabled = payload == "ON"
                 result = (await self.app.set_ac(None, enabled, vehicle_id=vehicle_id) if action_topic == "ac/set"
@@ -480,6 +503,10 @@ class MqttControl(control.Control):
             self._state["mqtt_owned"] = {}
         self._state["mqtt_owned"][self._manifest_key] = json.dumps(sorted(owned | set(mapping)))
         await self._state.save()
+        # Remove shipped read-only seat discovery before publishing the controls.
+        for vehicle_id in owned | set(mapping):
+            for seat in tesla.SEAT_HEATER_IDS:
+                await client.publish(self._config_topic(vehicle_id, f"sensor/{seat}"), "", qos=1, retain=True)
         for vehicle_id in owned - set(mapping):
             for key in self._discovery(vehicle_id, ""):
                 await client.publish(self._config_topic(vehicle_id, key), "", qos=1, retain=True)
