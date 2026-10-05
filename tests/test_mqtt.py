@@ -104,6 +104,15 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         self.assertIn("is sameas false", entities["switch/ac"]["value_template"])
         self.assertIn("else 'None'", entities["switch/ac"]["value_template"])
 
+    async def test_odometer_display_precision_preserves_published_value(self) -> None:
+        entities = self.control._discovery("id1", "Test vehicle")
+        self.assertEqual(entities["sensor/odometer_km"]["suggested_display_precision"], 3)
+        self.snapshot.odometer_km = 123.125 * 1.609344
+        await self.control._publish_snapshot(self.client, self.snapshot)
+        state = json.loads(self.client.publish.await_args.args[1])
+        self.assertEqual(state["odometer_km"], self.snapshot.odometer_km)
+        self.assertNotEqual(state["odometer_km"], round(state["odometer_km"], 3))
+
     def test_stateful_controls_are_optimistic_with_observed_state_topics(self) -> None:
         entities = self.control._discovery("id1", "Test vehicle")
         for key in ("switch/ac", "number/charge_limit"):

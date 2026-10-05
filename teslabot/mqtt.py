@@ -169,6 +169,8 @@ class MqttControl(control.Control):
                 config["unit_of_measurement"] = unit
             if state_class:
                 config["state_class"] = state_class
+            if key == "odometer_km":
+                config["suggested_display_precision"] = 3
             if key.startswith("software_update_") or key == "car_version":
                 config["entity_category"] = "diagnostic"
             entities[f"sensor/{key}"] = config
