@@ -9,6 +9,9 @@ configuration, persistence, integrations, and development entry points.
   task's changes without waiting for a separate commit request.
 - Stage only files belonging to the task. Leave unrelated changes untouched,
   and never commit secrets or temporary/generated agent files.
+- Before committing, run `mypy -p teslabot -p tests` and require it to exit
+  successfully. Fix all reported typing errors before committing; do not bypass
+  this gate with ignores or reduced type-checking coverage.
 
 # Logging Policy
 
