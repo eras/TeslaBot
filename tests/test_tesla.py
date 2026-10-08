@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from unittest import mock
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from teslabot.config import Config
 from teslabot.control import CommandContext, Control, MessageContext
@@ -13,7 +13,7 @@ from teslabot import tesla
 class FakeControl(Control):
     def __init__(self) -> None:
         super().__init__()
-        self.messages: List[Tuple[MessageContext, str]] = []
+        self.messages: list[tuple[MessageContext, str]] = []
 
     async def setup(self) -> None:
         pass
@@ -28,9 +28,9 @@ class FakeControl(Control):
 class FakeTesla:
     def __init__(self, email: str, **kwargs: object) -> None:
         self.email = email
-        self.kwargs: Dict[str, object] = kwargs
+        self.kwargs: dict[str, object] = kwargs
         self.authorized = False
-        self.fetch_token_calls: List[str] = []
+        self.fetch_token_calls: list[str] = []
         self.logout_calls = 0
 
     def authorization_url(self) -> str:
@@ -44,7 +44,7 @@ class FakeTesla:
         self.logout_calls += 1
         self.authorized = False
 
-    def vehicle_list(self) -> List[Dict[str, Any]]:
+    def vehicle_list(self) -> list[dict[str, Any]]:
         return []
 
     def close(self) -> None:
@@ -177,7 +177,7 @@ class TestTeslaAuthorization(unittest.TestCase):
             start.assert_not_awaited()
 
     def test_info_shows_climate_state_and_target_temperatures(self) -> None:
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "gui_settings": {"gui_distance_units": "km/hr", "gui_temperature_units": "C"},
             "drive_state": {},
             "charge_state": {

@@ -34,7 +34,7 @@ jobs:
       run: |
         DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true sudo apt-get install -y libssl-dev libolm-dev libffi-dev tzdata gcc
         python -m pip install --upgrade pip
-        python -m pip install mypy wheel --requirement requirements.txt --requirement requirements-slack.txt --requirement requirements-matrix.txt
+        python -m pip install wheel Jinja2 -e '.[matrix,slack,mqtt]'
 
     - name: Install dependencies for mypy checking
       run: pip3 install -r requirements-types.txt

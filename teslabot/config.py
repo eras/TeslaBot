@@ -1,6 +1,6 @@
 import argparse
 from configparser import ConfigParser, SectionProxy
-from typing import cast, List, Optional, Union, Dict, Any
+from typing import cast, Optional, Union, Any
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import os
@@ -57,7 +57,7 @@ class Config:
 
     def __init__(self,
                  filename: str,
-                 config_dict: Union[Dict[str, Dict[str, str]], None] = None) -> None:
+                 config_dict: Union[dict[str, dict[str, str]], None] = None) -> None:
         self.filename = filename
         self._config = ConfigParser()
 

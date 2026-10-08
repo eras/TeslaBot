@@ -1,8 +1,7 @@
 from setuptools import setup
 import versioneer
-from typing import List
 
-def lines(filename: str) -> List[str]:
+def lines(filename: str) -> list[str]:
     with open(filename, "r") as input:
         return input.readlines()
 

@@ -13,6 +13,14 @@ configuration, persistence, integrations, and development entry points.
   successfully. Fix all reported typing errors before committing; do not bypass
   this gate with ignores or reduced type-checking coverage.
 
+# Type Annotations
+
+- Use built-in generic types such as `list[T]`, `dict[K, V]`, `set[T]`,
+  `tuple[...]`, `frozenset[T]`, and `type[T]` instead of the legacy `typing`
+  aliases `List`, `Dict`, `Set`, `Tuple`, `FrozenSet`, and `Type`.
+- Do not import these aliases from `typing`. Apply this guidance to annotations,
+  type aliases, and type comments in application code and tests.
+
 # Logging Policy
 
 - Preserve diagnostic information in logs. Do not remove payloads, command

@@ -3,7 +3,7 @@ import asyncio
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, List
+from typing import Optional
 
 from . import commands
 from . import parser
@@ -75,7 +75,7 @@ class Control(ABC):
                                                        parser.Empty(), self._command_ping))
         self.require_bang = True
 
-    async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
+    async def _command_ping(self, context: CommandContext, valid: tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
     @abstractmethod
@@ -133,7 +133,7 @@ class Control(ABC):
         """Release any adapter-owned sessions after run has stopped."""
 
 
-def parse_controls(value: str) -> List[str]:
+def parse_controls(value: str) -> list[str]:
     names = [part.strip() for part in value.split(",")]
     if any(name not in ("matrix", "slack", "mqtt") for name in names) or len(set(names)) != len(names):
         raise ConfigError("common.control requires unique lowercase matrix, slack, mqtt names")
@@ -142,7 +142,7 @@ def parse_controls(value: str) -> List[str]:
 
 class MultiControl(Control):
     """Route replies, share chat settings, and own adapter lifetimes."""
-    def __init__(self, children: List[Control]) -> None:
+    def __init__(self, children: list[Control]) -> None:
         self.children = children
         super().__init__()
         self.run_scheduled_commands = any(child.run_scheduled_commands for child in children)

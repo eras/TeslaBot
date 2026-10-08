@@ -1,7 +1,7 @@
 import re
 import datetime
 from abc import ABC, abstractmethod
-from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Type, cast
+from typing import Callable, Coroutine, Any, TypeVar, Generic, Optional, Mapping, Union, cast
 from typing_extensions import Protocol
 from enum import Enum
 from dataclasses import dataclass
@@ -74,11 +74,11 @@ class ParseFail(ParseResult[Parsed]):
         return self.message == other.message and self.processed == other.processed
 
 class Parser(ABC, Generic[Parsed]):
-    def __call__(self, args: List[str]) -> ParseResult[Parsed]:
+    def __call__(self, args: list[str]) -> ParseResult[Parsed]:
         return self.parse(args)
 
     @abstractmethod
-    def parse(self, args: List[str]) -> ParseResult[Parsed]:
+    def parse(self, args: list[str]) -> ParseResult[Parsed]:
         pass
 
     def base(self) -> "Parser[Parsed]":
@@ -90,24 +90,24 @@ class Parser(ABC, Generic[Parsed]):
     def unknown(self) -> "Parser[Unknown]":
         return cast(Parser[Unknown], self)
 
-EmptyVal = Tuple[()]
+EmptyVal = tuple[()]
 
 class Empty(Parser[EmptyVal]):
-    def parse(self, args: List[str]) -> ParseResult[EmptyVal]:
+    def parse(self, args: list[str]) -> ParseResult[EmptyVal]:
         if len(args) == 0:
             return ParseOK((), processed=0)
         else:
             return ParseFail("Expected no more arguments", processed=0)
 
 class AnyStr(Parser[str]):
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         return ParseOK(args[0], processed=1)
 
 # Handles slack mrkdwn links
 class Url(Parser[str]):
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         if args[0].startswith('<') and args[0].endswith('>'):
@@ -115,19 +115,19 @@ class Url(Parser[str]):
         return ParseOK(args[0], processed=1)
 
 class RestAsStr(Parser[str]):
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         return ParseOK(" ".join(args), processed=len(args))
 
-class List_(Parser[List[T]]):
+class List_(Parser[list[T]]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[List[T]]:
-        parses: List[T] = []
+    def parse(self, args: list[str]) -> ParseResult[list[T]]:
+        parses: list[T] = []
         processed = 0
         while processed < len(args):
             parse = self.parser(args[processed:])
@@ -147,7 +147,7 @@ class CaptureFixedStr(Parser[str]):
     def __init__(self, fixed_string: str) -> None:
         self.fixed_string = fixed_string
 
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         if args[0].lower() == self.fixed_string.lower():
@@ -167,7 +167,7 @@ class Keyword(Parser[T]):
         self.keyword = keyword
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         if args[0].lower() == self.keyword.lower():
@@ -179,13 +179,13 @@ class Keyword(Parser[T]):
         else:
             return ParseFail(f"Expected {self.keyword}", processed=0)
 
-class Regex(Parser[Tuple[Optional[str], ...]]):
+class Regex(Parser[tuple[Optional[str], ...]]):
     regex: "re.Pattern[str]"
 
     def __init__(self, regex: str, flags: int = 0) -> None:
         self.regex = re.compile(regex, flags=flags)
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[str], ...]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[Optional[str], ...]]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         match = re.match(self.regex, args[0])
@@ -202,7 +202,7 @@ class Int(Parser[int]):
         super().__init__()
         self.parser = Regex(r"([0-9]+)")
 
-    def parse(self, args: List[str]) -> ParseResult[int]:
+    def parse(self, args: list[str]) -> ParseResult[int]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             assert result.value[0] is not None
@@ -218,7 +218,7 @@ class Float(Parser[float]):
         super().__init__()
         self.parser = Regex(r"([0-9]+(?:.[0-9]+)?)")
 
-    def parse(self, args: List[str]) -> ParseResult[float]:
+    def parse(self, args: list[str]) -> ParseResult[float]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             assert result.value[0] is not None
@@ -228,7 +228,7 @@ class Float(Parser[float]):
             return ParseFail(result.message, processed=0)
 
 class Bool(Parser[bool]):
-    def parse(self, args: List[str]) -> ParseResult[bool]:
+    def parse(self, args: list[str]) -> ParseResult[bool]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         value = args[0].lower()
@@ -246,7 +246,7 @@ class Optional_(Parser[Optional[T]]):
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[Optional[T]]:
+    def parse(self, args: list[str]) -> ParseResult[Optional[T]]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK(result.value, processed=result.processed)
@@ -259,7 +259,7 @@ class ValidOrMissing(Parser[Optional[T]]):
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[Optional[T]]:
+    def parse(self, args: list[str]) -> ParseResult[Optional[T]]:
         if len(args) == 0:
             return ParseOK(None, processed=0)
         else:
@@ -283,7 +283,7 @@ class Callback(Generic[T], Parser[Callable[[], None]]):
         self.parser = parser
         self.callback = callback
 
-    def parse(self, args: List[str]) -> ParseResult[Callable[[], None]]:
+    def parse(self, args: list[str]) -> ParseResult[Callable[[], None]]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             # mypy is confused about result.value?!
@@ -292,13 +292,13 @@ class Callback(Generic[T], Parser[Callable[[], None]]):
             assert isinstance(result, ParseFail)
             return result.forward(processed=0)
 
-class Capture(Parser[Tuple[List[str], T]]):
+class Capture(Parser[tuple[list[str], T]]):
     parser: Parser[T]
 
     def __init__(self, parser: Parser[T]) -> None:
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[List[str], T]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[list[str], T]]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK((args[0:result.processed], result.value), processed=result.processed)
@@ -306,13 +306,13 @@ class Capture(Parser[Tuple[List[str], T]]):
             assert isinstance(result, ParseFail)
             return result.forward(processed=0)
 
-class CaptureOnly(Parser[List[str]]):
+class CaptureOnly(Parser[list[str]]):
     parser: Parser[Any]
 
     def __init__(self, parser: Parser[Any]) -> None:
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[List[str]]:
+    def parse(self, args: list[str]) -> ParseResult[list[str]]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK(args[0:result.processed], processed=result.processed)
@@ -322,13 +322,13 @@ class CaptureOnly(Parser[List[str]]):
 
 class Map(Generic[T1, T2], Parser[T2]):
     parser: Parser[T1]
-    map: List[Callable[[T1], T2]]
+    map: list[Callable[[T1], T2]]
 
     def __init__(self, map: Callable[[T1], T2], parser: Parser[T1]) -> None:
         self.parser = parser
         self.map = [map]
 
-    def parse(self, args: List[str]) -> ParseResult[T2]:
+    def parse(self, args: list[str]) -> ParseResult[T2]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK(self.map[0](result.value), processed=result.processed)
@@ -336,15 +336,15 @@ class Map(Generic[T1, T2], Parser[T2]):
             assert isinstance(result, ParseFail)
             return result.forward(processed=0)
 
-class MapDict(Map[List[Tuple[TagT, T]], Mapping[TagT, T]]):
-    parser: Parser[List[Tuple[TagT, T]]]
+class MapDict(Map[list[tuple[TagT, T]], Mapping[TagT, T]]):
+    parser: Parser[list[tuple[TagT, T]]]
 
-    def __init__(self, parser: Parser[List[Tuple[TagT, T]]]) -> None:
-        def mapping(xs: List[Tuple[TagT, T]]) -> Mapping[TagT, T]:
+    def __init__(self, parser: Parser[list[tuple[TagT, T]]]) -> None:
+        def mapping(xs: list[tuple[TagT, T]]) -> Mapping[TagT, T]:
             return dict(xs)
         super().__init__(parser=parser, map=mapping)
 
-class Tag(Map[T, Tuple[TagT, T]]):
+class Tag(Map[T, tuple[TagT, T]]):
     """Maps the result so that it is preceded by the given tag (in a 2-tuple)
 
     Can be useful with VldSomeOf for identifying which values came back.
@@ -353,7 +353,7 @@ class Tag(Map[T, Tuple[TagT, T]]):
     tag: TagT
 
     def __init__(self, tag: TagT, parser: Parser[T]) -> None:
-        def mapping(x: T) -> Tuple[TagT, T]:
+        def mapping(x: T) -> tuple[TagT, T]:
             return (tag, x)
         super().__init__(parser=parser, map=mapping)
         self.tag = tag
@@ -375,7 +375,7 @@ class Wrap(Map[T, Wrapped[T]]):
             return wrapper(x)
         super().__init__(parser=parser, map=mapping)
 
-def try_parses(parses: List[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
+def try_parses(parses: list[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     value = None
     for parse in parses:
         value = parse()
@@ -384,7 +384,7 @@ def try_parses(parses: List[Callable[[], ParseResult[T]]]) -> ParseResult[T]:
     assert value
     return value
 
-class Adjacent(Parser[Tuple[T1, T2]]):
+class Adjacent(Parser[tuple[T1, T2]]):
     """Parses two values in the same order as the given parsers
 
     It tries all combinations and prefers longest matches. E.g.  for
@@ -408,9 +408,9 @@ class Adjacent(Parser[Tuple[T1, T2]]):
         self.parser_right = parser_right
         self.right_priority = right_priority
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[T1, T2]]:
-        def right_priority() -> ParseResult[Tuple[T1, T2]]:
-            def try_with_right(sub_args: List[str], require_max_len: bool) -> ParseResult[Tuple[T1, T2]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[T1, T2]]:
+        def right_priority() -> ParseResult[tuple[T1, T2]]:
+            def try_with_right(sub_args: list[str], require_max_len: bool) -> ParseResult[tuple[T1, T2]]:
                 # For all sequences of length [0..len(args)[ find the longest one that can be parsed
                 # sequentially by the two parsers provided. O(n^2).
                 while True:
@@ -441,8 +441,8 @@ class Adjacent(Parser[Tuple[T1, T2]]):
             return try_parses([lambda: try_with_right(args, True),
                                lambda: try_with_right(args, False)])
 
-        def left_priority() -> ParseResult[Tuple[T1, T2]]:
-            def try_with_left(sub_args: List[str], require_max_len: bool) -> ParseResult[Tuple[T1, T2]]:
+        def left_priority() -> ParseResult[tuple[T1, T2]]:
+            def try_with_left(sub_args: list[str], require_max_len: bool) -> ParseResult[tuple[T1, T2]]:
                 while True:
                     found_max_len = None
                     left = None
@@ -479,7 +479,7 @@ class IfThen(Parser[T]):
     def __init__(self, parser_left: Parser[Any], parser_right: Parser[T]) -> None:
         self.parser = Adjacent(parser_left, parser_right)
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         result = self.parser(args)
         if isinstance(result, ParseFail):
             return result.forward(processed=0)
@@ -493,7 +493,7 @@ class Remaining(Parser[T]):
     def __init__(self, parser: Parser[T]):
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             if result.processed == len(args):
@@ -505,10 +505,10 @@ class Remaining(Parser[T]):
 
 class Concat(Parser[str]):
     """Takes all provided input strings and concatenates them to one string"""
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         return ParseOK(' '.join(args), processed=len(args))
 
-class Seq(Parser[List[T]]):
+class Seq(Parser[list[T]]):
     """Parser a sequence of values in the same order as the given parsers
 
     This requires all the parsers to be of the same type. `Parser.any()` can be useful for
@@ -519,14 +519,14 @@ class Seq(Parser[List[T]]):
     for the upcasting.
     """
 
-    parsers: List[Parser[T]]
+    parsers: list[Parser[T]]
 
-    def __init__(self, parsers: List[Parser[T]]) -> None:
+    def __init__(self, parsers: list[Parser[T]]) -> None:
         assert parsers, "VldSeq: expected at least one parser"
         self.parsers = parsers
 
-    def parse(self, args: List[str]) -> ParseResult[List[T]]:
-        results: List[T] = []
+    def parse(self, args: list[str]) -> ParseResult[list[T]]:
+        results: list[T] = []
         total_processed = 0
         for index, parser in enumerate(self.parsers):
             result = parser.parse(args)
@@ -548,16 +548,16 @@ class Labeled(Parser[T]):
         self.label = label
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         return self.parser(args)
 
 class OneOf(Parser[T]):
-    parsers: Tuple[Parser[T], ...]
+    parsers: tuple[Parser[T], ...]
 
     def __init__(self, *parsers: Parser[T]) -> None:
         self.parsers = parsers
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         longest_fail: Optional[ParseFail[T]] = None
@@ -578,12 +578,12 @@ class OneOf(Parser[T]):
             return ParseFail(f"Invalid value{options}", processed=longest_fail.processed)
 
 class OneOfStrings(Parser[str]):
-    strings: List[str]
+    strings: list[str]
 
-    def __init__(self, strings: List[str]) -> None:
+    def __init__(self, strings: list[str]) -> None:
         self.strings = strings
 
-    def parse(self, args: List[str]) -> ParseResult[str]:
+    def parse(self, args: list[str]) -> ParseResult[str]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         if [str.lower() for str in self.strings].count(args[0].lower()):
@@ -593,12 +593,12 @@ class OneOfStrings(Parser[str]):
             return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 class OneOfStringsIndex(Parser[int]):
-    strings: List[str]
+    strings: list[str]
 
-    def __init__(self, strings: List[str]) -> None:
+    def __init__(self, strings: list[str]) -> None:
         self.strings = strings
 
-    def parse(self, args: List[str]) -> ParseResult[int]:
+    def parse(self, args: list[str]) -> ParseResult[int]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         index: Optional[int] = None
@@ -615,12 +615,12 @@ class OneOfStringsIndex(Parser[int]):
 TEnum = TypeVar('TEnum', bound=Enum)
 
 class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
-    enum: Type[TEnum]
+    enum: type[TEnum]
 
-    def __init__(self, enum: Type[TEnum]) -> None:
+    def __init__(self, enum: type[TEnum]) -> None:
         self.enum = enum
 
-    def parse(self, args: List[str]) -> ParseResult[TEnum]:
+    def parse(self, args: list[str]) -> ParseResult[TEnum]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         values = [enum for enum in self.enum.__members__.values()
@@ -633,12 +633,12 @@ class OneOfEnumValue(Generic[TEnum], Parser[TEnum]):
             return ParseFail(f"Expected one of {valid_values}", processed=0)
 
 class Delayed(Parser[T]):
-    mk_validator: List[Callable[[], Parser[T]]]
+    mk_validator: list[Callable[[], Parser[T]]]
 
     def __init__(self, parser: Callable[[], Parser[T]]):
         self.parser = parser
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         return self.parser().parse(args)
 
 class Condition(Protocol):
@@ -653,32 +653,32 @@ class Conditional(Parser[T]):
         self.parser = parser
         self.condition = condition
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         if self.condition():
             return self.parser.parse(args)
         else:
             return ParseFail("Condition is false", processed=0)
 
-class SomeOf(Parser[Tuple[Optional[T], ...]]):
+class SomeOf(Parser[tuple[Optional[T], ...]]):
     """Parses a sequence of values with given parsers, but the order of the values can be anything
     and they can also be omitted in part or completely.
 
     The order of fields in the returned list is the same as of the parsers."""
 
-    parsers: Tuple[Parser[T], ...]
+    parsers: tuple[Parser[T], ...]
 
     def __init__(self, *parsers: Parser[T]) -> None:
         assert parsers, "VldSeq: expected at least one parser"
         self.parsers = parsers
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[Optional[T], ...]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[Optional[T], ...]]:
         parsers = list(enumerate(self.parsers))
         total_processed = 0
         any_matched = True
-        results: List[Optional[T]] = len(parsers) * [cast(Optional[T], None)]
+        results: list[Optional[T]] = len(parsers) * [cast(Optional[T], None)]
         while any_matched:
             any_matched = False
-            next_parsers: List[Tuple[int, Parser[T]]] = []
+            next_parsers: list[tuple[int, Parser[T]]] = []
             for index, parser in parsers:
                 result = parser.parse(args)
                 if isinstance(result, ParseOK):
@@ -699,27 +699,27 @@ class _SomeOfGeneral(Parser[T]):
     def __init__(self, *parsers: Parser[Any]) -> None:
         self.parsers = SomeOf(*[parser for parser in parsers]).unknown()
 
-    def parse(self, args: List[str]) -> ParseResult[T]:
+    def parse(self, args: list[str]) -> ParseResult[T]:
         result = self.parsers.parse(args)
         if isinstance(result, ParseFail):
             return result.forward(processed=0)
         assert isinstance(result, ParseOK)
         return cast(ParseResult[Any], result)
 
-class SomeOf2(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2]]]):
+class SomeOf2(_SomeOfGeneral[tuple[Optional[T1], Optional[T2]]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2]) -> None:
         super().__init__(parser1, parser2)
         self.parsers = SomeOf(parser1.unknown(), parser2.unknown()).unknown()
 
-class SomeOf3(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2], Optional[T3]]]):
+class SomeOf3(_SomeOfGeneral[tuple[Optional[T1], Optional[T2], Optional[T3]]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2], parser3: Parser[T3]) -> None:
         super().__init__(parser1, parser2, parser3)
 
-class SomeOf4(_SomeOfGeneral[Tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4]]]):
+class SomeOf4(_SomeOfGeneral[tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4]]]):
     """Type-safe wrapper for SomeOf for parsing values of different types"""
 
     def __init__(self, parser1: Parser[T1], parser2: Parser[T2], parser3: Parser[T3], parser4: Parser[T4]) -> None:
@@ -731,7 +731,7 @@ class Interval(Parser[datetime.timedelta]):
     def __init__(self) -> None:
         self.regex = Regex(r"^(?:([0-9]{1,4})h)?(?:([0-9]{1,4})m)?$")
 
-    def parse(self, args: List[str]) -> ParseResult[datetime.timedelta]:
+    def parse(self, args: list[str]) -> ParseResult[datetime.timedelta]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
@@ -748,13 +748,13 @@ class Interval(Parser[datetime.timedelta]):
             return ParseFail("Too short interval", processed=0)
         return ParseOK(delta, processed=result.processed)
 
-class HhMm(Parser[Tuple[int, int]]):
+class HhMm(Parser[tuple[int, int]]):
     regex: Regex
 
     def __init__(self) -> None:
         self.regex = Regex(r"^([0-9]{1,2}):?([0-9]{2})$")
 
-    def parse(self, args: List[str]) -> ParseResult[Tuple[int, int]]:
+    def parse(self, args: list[str]) -> ParseResult[tuple[int, int]]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
@@ -776,23 +776,23 @@ class SuffixInfo(Generic[T]):
 
 @dataclass
 class _SuffixWrapped(Generic[T]):
-    internal: Optional[Tuple[Optional[str], ...]] = None
+    internal: Optional[tuple[Optional[str], ...]] = None
     """e.g. 42m"""
 
-    external: Optional[Tuple[T, str]] = None
+    external: Optional[tuple[T, str]] = None
     """e.g. 42 m"""
 
 class GeneralSuffix(Parser[SuffixInfo[T]], ABC):
     parser: Parser[_SuffixWrapped[T]]
 
-    def __init__(self, regex: str, suffixes: List[str],
+    def __init__(self, regex: str, suffixes: list[str],
                  parser: Parser[T]) -> None:
         self.parser = OneOf(
             Map(map=lambda x: _SuffixWrapped(internal=x), parser=Regex(regex)),
             Map(map=lambda x: _SuffixWrapped(external=x), parser=Adjacent(parser, OneOfStrings(suffixes))),
         )
 
-    def parse(self, args: List[str]) -> ParseResult[SuffixInfo[T]]:
+    def parse(self, args: list[str]) -> ParseResult[SuffixInfo[T]]:
         result = self.parser.parse(args)
         if isinstance(result, ParseFail):
             return result.forward(processed=0)
@@ -805,34 +805,34 @@ class GeneralSuffix(Parser[SuffixInfo[T]], ABC):
             return ParseOK(processed=result.processed, value=self.of_external(value.external))
 
     @abstractmethod
-    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[T]:
+    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[T]:
         ...
 
-    def of_external(self, external: Tuple[T, str]) -> SuffixInfo[T]:
+    def of_external(self, external: tuple[T, str]) -> SuffixInfo[T]:
         return SuffixInfo(value=external[0], suffix=external[1])
 
-def re_of_alternatives(alternatives: List[str]) -> str:
+def re_of_alternatives(alternatives: list[str]) -> str:
     return "|".join([re.escape(x) for x in alternatives])
 
 class PosIntSuffix(GeneralSuffix[int]):
-    def __init__(self, suffixes: List[str]) -> None:
+    def __init__(self, suffixes: list[str]) -> None:
         suffixes_re = re_of_alternatives(suffixes)
         super().__init__(regex=r"^(?:([0-9]{1,4})(" + suffixes_re + r"))$",
                          suffixes=suffixes,
                          parser=Int())
 
-    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[int]:
+    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[int]:
         return SuffixInfo(value=int(assert_some(internal[0])),
                           suffix=assert_some(internal[1]))
 
 class PosFloatSuffix(GeneralSuffix[float]):
-    def __init__(self, suffixes: List[str]) -> None:
+    def __init__(self, suffixes: list[str]) -> None:
         suffixes_re = re_of_alternatives(suffixes)
         super().__init__(regex=r"^(?:([0-9]{1,4}(?:.[0-9]+)?)(" + suffixes_re + r"))$",
                          suffixes=suffixes,
                          parser=Float())
 
-    def of_internal(self, internal: Tuple[Optional[str], ...]) -> SuffixInfo[float]:
+    def of_internal(self, internal: tuple[Optional[str], ...]) -> SuffixInfo[float]:
         return SuffixInfo(value=float(assert_some(internal[0])),
                           suffix=assert_some(internal[1]))
 
@@ -842,7 +842,7 @@ class Meters(Parser[float]):
     def __init__(self) -> None:
         self.parser = PosFloatSuffix(["m", "km"])
 
-    def parse(self, args: List[str]) -> ParseResult[float]:
+    def parse(self, args: list[str]) -> ParseResult[float]:
         result = self.parser.parse(args)
         if isinstance(result, ParseFail):
             return result.forward(processed=0)
@@ -860,8 +860,8 @@ class Meters(Parser[float]):
 
 @dataclass
 class _DateWrapped:
-    yyyymmdd: Optional[Tuple[Optional[str], ...]] = None
-    today_tomorrow: Optional[Tuple[Optional[str], ...]] = None
+    yyyymmdd: Optional[tuple[Optional[str], ...]] = None
+    today_tomorrow: Optional[tuple[Optional[str], ...]] = None
 
 class Date(Parser[datetime.date]):
     regex: Parser[_DateWrapped]
@@ -877,7 +877,7 @@ class Date(Parser[datetime.date]):
             )
         self.today = today
 
-    def parse(self, args: List[str]) -> ParseResult[datetime.date]:
+    def parse(self, args: list[str]) -> ParseResult[datetime.date]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
@@ -887,7 +887,7 @@ class Date(Parser[datetime.date]):
             assert isinstance(result, ParseOK)
             today = self.today if self.today else datetime.date.today()
             if result.value.yyyymmdd is not None:
-                yyyymmdd: Tuple[Union[str, None], ...] = assert_some(result.value.yyyymmdd)
+                yyyymmdd: tuple[Union[str, None], ...] = assert_some(result.value.yyyymmdd)
                 try:
                     return ParseOK(datetime.date(year=int(assert_some(yyyymmdd[0])),
                                                  month=int(assert_some(yyyymmdd[1])),
@@ -904,9 +904,9 @@ class Date(Parser[datetime.date]):
 
 @dataclass
 class _TimeWrapped:
-    hhmm:    Optional[Tuple[Optional[str], ...]] = None
-    hm:      Optional[Tuple[Optional[str], ...]] = None
-    int_h_m: Optional[Tuple[Optional[SuffixInfo[int]],
+    hhmm:    Optional[tuple[Optional[str], ...]] = None
+    hm:      Optional[tuple[Optional[str], ...]] = None
+    int_h_m: Optional[tuple[Optional[SuffixInfo[int]],
                             Optional[SuffixInfo[int]]]] = None
 
 class Time(Parser[datetime.datetime]):
@@ -922,7 +922,7 @@ class Time(Parser[datetime.datetime]):
         )
         self.now = now
 
-    def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
+    def parse(self, args: list[str]) -> ParseResult[datetime.datetime]:
         if len(args) == 0:
             return ParseFail("No argument provided", processed=0)
         result = self.regex.parse(args)
@@ -979,7 +979,7 @@ class Weekday(Parser[int]):
         all_weekdays += Weekday.weekdays_long
         self.parser = OneOfStringsIndex(strings=all_weekdays)
 
-    def parse(self, args: List[str]) -> ParseResult[int]:
+    def parse(self, args: list[str]) -> ParseResult[int]:
         result = self.parser(args)
         if isinstance(result, ParseOK):
             return ParseOK(result.value % 7, processed=result.processed)
@@ -994,7 +994,7 @@ class _DateWeekdayWrapped:
 
 class DateTime(Parser[datetime.datetime]):
     now: Optional[datetime.datetime]
-    parser: Adjacent[_DateWeekdayWrapped, Tuple[int, int]]
+    parser: Adjacent[_DateWeekdayWrapped, tuple[int, int]]
 
     def __init__(self, now: Optional[datetime.datetime] = None) -> None:
         self.now = now
@@ -1007,7 +1007,7 @@ class DateTime(Parser[datetime.datetime]):
                 ),
                 HhMm())
 
-    def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
+    def parse(self, args: list[str]) -> ParseResult[datetime.datetime]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             now = self.now if self.now is not None else datetime.datetime.now()
@@ -1040,7 +1040,7 @@ class TimeOrDateTime(Parser[datetime.datetime]):
         self.parser = OneOf(Labeled("datetime", DateTime(now=now)),
                             Labeled("time", Time(now=now)))
 
-    def parse(self, args: List[str]) -> ParseResult[datetime.datetime]:
+    def parse(self, args: list[str]) -> ParseResult[datetime.datetime]:
         result = self.parser.parse(args)
         if isinstance(result, ParseOK):
             return ParseOK(result.value, processed=result.processed)

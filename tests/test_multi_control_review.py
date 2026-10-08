@@ -253,13 +253,14 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
             adapter._channel_id, adapter._admin_channel_id = "normal", "admin"
             adapter._aiohttp_session = None
             adapter._client = mock.Mock()
+            slack_error = cast(Callable[[str, dict[str, Any]], slack.errors.SlackApiError], slack.errors.SlackApiError)
             recovered = False
             def send(**kwargs: Any) -> asyncio.Future[dict[str, Any]]:
                 future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
                 if recovered:
                     future.set_result({"ok": True})
                 else:
-                    future.set_exception(slack.errors.SlackApiError("SECRET_SENTINEL", {"ok": False, "error": "delivery_failed"}))
+                    future.set_exception(slack_error("SECRET_SENTINEL", {"ok": False, "error": "delivery_failed"}))
                 return future
             adapter._client.api_call = mock.Mock(side_effect=send)
             sender = adapter._client.api_call
@@ -417,6 +418,18 @@ class ReviewRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.state["timers"] = {str(entry.context.info.id): json.dumps(appscheduler.timer_entry_to_json(entry))
                                 for entry in (recurring, valid)}
         await self.app.initialize()
+        # Initialization or CI load must not expire the persisted one-shot.
+        clock = now.timestamp()
+        async def timer_now() -> float:
+            return clock
+        async def timer_sleep(delta: float, condition: asyncio.Condition) -> None:
+            nonlocal clock
+            if delta > 1:
+                await asyncio.Event().wait()
+            clock += delta
+            await asyncio.sleep(0)
+        self.app._scheduler._scheduler.now = timer_now
+        self.app._scheduler._scheduler.sleep = timer_sleep
         runtime = self.start(self.app.run())
         await asyncio.wait_for(completed.wait(), 1)
         await asyncio.sleep(0)

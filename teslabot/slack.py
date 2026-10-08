@@ -1,5 +1,5 @@
 import os
-from typing import List, Union, Optional, Any, Tuple
+from typing import Union, Optional, Any
 import asyncio
 import aiohttp
 import json
@@ -180,7 +180,7 @@ class SlackControl(control.Control):
             logger.exception("Slack worker failed")
             raise exn
 
-    async def _command_ping(self, context: CommandContext, valid: Tuple[()]) -> None:
+    async def _command_ping(self, context: CommandContext, valid: tuple[()]) -> None:
         await self.send_message(context.to_message_context(), "pong")
 
     async def _process_event(self, event: Any) -> None:

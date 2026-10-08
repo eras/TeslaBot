@@ -7,7 +7,7 @@ import teslapy
 import oauthlib.oauth2
 import urllib.error
 import urllib3.exceptions
-from typing import List, Tuple, Optional, Any, Callable, Awaitable, TypeVar, Generic
+from typing import Optional, Any, Callable, Awaitable, TypeVar, Generic
 from dataclasses import dataclass
 
 from . import scheduler
@@ -27,7 +27,7 @@ logger = log.getLogger(__name__)
 @dataclass
 class AppTimerInfo:
     id: int
-    command: List[str]
+    command: list[str]
     until: Optional[datetime.datetime]
 
     def json(self) -> Any:
@@ -77,10 +77,10 @@ def timer_entry_from_json(id: int, json: Any, callback: Callable[[scheduler.Entr
     return entry
 
 
-def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[Tuple[str, T]]:
+def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[tuple[str, T]]:
     return p.Labeled(label=label, parser=p.Adjacent(p.CaptureFixedStr(label), parser).base())
 
-CommandWithArgs = List[str]
+CommandWithArgs = list[str]
 def valid_schedulable(app_scheduler: "AppScheduler[T]",
                       include_every: bool,
                       include_until: bool) -> p.Parser[CommandWithArgs]:
@@ -95,12 +95,12 @@ def valid_schedulable(app_scheduler: "AppScheduler[T]",
                                                       include_every=include_every)).any())
     return p.CaptureOnly(p.OneOf(*cmds))
 
-ScheduleAtArgs = Tuple[datetime.datetime,
+ScheduleAtArgs = tuple[datetime.datetime,
                        CommandWithArgs]
 def valid_schedule_at(app_scheduler: "AppScheduler[T]") -> p.Parser[ScheduleAtArgs]:
     return p.Remaining(p.Adjacent(p.TimeOrDateTime(), valid_schedulable(app_scheduler, include_every=True, include_until=True)))
 
-ScheduleEveryArgs = Tuple[Tuple[datetime.timedelta,
+ScheduleEveryArgs = tuple[tuple[datetime.timedelta,
                                 Optional[datetime.datetime]],
                           CommandWithArgs]
 def valid_schedule_every(app_scheduler: "AppScheduler[T]", include_until: bool) -> p.Parser[ScheduleEveryArgs]:
@@ -112,7 +112,7 @@ def valid_schedule_every(app_scheduler: "AppScheduler[T]", include_until: bool) 
                                                                    p.Keyword("until", p.TimeOrDateTime()))))),
                                   valid_schedulable(app_scheduler, include_every=False, include_until=include_until)))
 
-ScheduleUntilArgs = Tuple[Tuple[datetime.datetime,
+ScheduleUntilArgs = tuple[tuple[datetime.datetime,
                                 Optional[datetime.timedelta]],
                           CommandWithArgs]
 def valid_schedule_until(app_scheduler: "AppScheduler[T]", include_every: bool) -> p.Parser[ScheduleUntilArgs]:
@@ -142,14 +142,14 @@ class AppSchedulerState(Generic[T], StateElement):
 
 class AppScheduler(Generic[T]):
     state: State
-    schedulable_commands: List[p.Parser[Tuple[str, T]]]
+    schedulable_commands: list[p.Parser[tuple[str, T]]]
     _scheduler: scheduler.Scheduler[SchedulerContext]
     _scheduler_id: int
     control: Control
     _commands: Optional[c.Commands[CommandContext]]
 
     def __init__(self,
-                 schedulable_commands: List[p.Parser[Tuple[str, T]]],
+                 schedulable_commands: list[p.Parser[tuple[str, T]]],
                  state: State,
                  control: Control) -> None:
         self.schedulable_commands = schedulable_commands
@@ -198,10 +198,10 @@ class AppScheduler(Generic[T]):
         self._scheduler_id += 1
         return id
 
-    async def _command_ls(self, context: CommandContext, valid: Tuple[()]) -> None:
+    async def _command_ls(self, context: CommandContext, valid: tuple[()]) -> None:
         entries = await self._scheduler.get_entries()
         if entries:
-            result: List[str] = []
+            result: list[str] = []
             for entry in entries:
                 info = entry.context.info
                 if isinstance(entry, scheduler.OneShot):
@@ -215,10 +215,10 @@ class AppScheduler(Generic[T]):
             await self.control.send_message(context.to_message_context(), f"No timers set.")
 
     async def _command_rm(self, context: CommandContext,
-                          ids: List[int]) -> None:
+                          ids: list[int]) -> None:
         def matches(entry: scheduler.Entry[SchedulerContext]) -> bool:
             return ids.count(entry.context.info.id) > 0
-        async def remove_entry(entries: List[scheduler.Entry[SchedulerContext]]) -> Tuple[List[scheduler.Entry[SchedulerContext]], bool]:
+        async def remove_entry(entries: list[scheduler.Entry[SchedulerContext]]) -> tuple[list[scheduler.Entry[SchedulerContext]], bool]:
             new_entries = [entry for entry in entries if not matches(entry)]
             logger.debug(f"remove_entry: {entries} -> {new_entries}")
             return new_entries, len(new_entries) != len(entries)

@@ -1,5 +1,5 @@
 from configparser import ConfigParser
-from typing import Dict, Any, Optional, Tuple, Callable, Awaitable, List, Union
+from typing import Any, Optional, Callable, Awaitable, Union
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
@@ -39,7 +39,7 @@ class Location:
     address: Optional[str] = None
 
     def json(self) -> Any:
-        js: Dict[str, Union[str, float]] = {"lat": self.lat, "lon": self.lon}
+        js: dict[str, Union[str, float]] = {"lat": self.lat, "lon": self.lon}
         if self.near_km is not None:
             js["near_km"] = self.near_km
         if self.address is not None:
@@ -79,13 +79,13 @@ class Location:
 
 class LocationInfo(ABC):
     @staticmethod
-    def from_coords(coords: Tuple[Optional[str], ...]) -> "LocationInfo":
+    def from_coords(coords: tuple[Optional[str], ...]) -> "LocationInfo":
         assert coords[0] is not None
         assert coords[1] is not None
         return LocationInfoCoords(LatLon(float(coords[0]), float(coords[1])))
 
     @staticmethod
-    def from_current(args: Tuple[Tuple[Optional[str], ...], Optional[str]]) -> "LocationInfo":
+    def from_current(args: tuple[tuple[Optional[str], ...], Optional[str]]) -> "LocationInfo":
         current, vehicle_name = args
         return LocationInfoCurrent(vehicle_name=vehicle_name)
 
@@ -108,7 +108,7 @@ LocationCoordsValue : p.Parser[LocationInfo] = \
                   parser=p.Adjacent(p.Regex(r"^current?$"),
                                     p.Optional_(p.AnyStr()))))
 
-LocationAddArgs = Tuple[Tuple[str, LocationInfo], Tuple[Optional[float], Optional[str]]]
+LocationAddArgs = tuple[tuple[str, LocationInfo], tuple[Optional[float], Optional[str]]]
 LocationAddArgsValue: p.Parser[LocationAddArgs] = \
     p.Remaining(p.Adjacent(p.Adjacent(p.AnyStr(), LocationCoordsValue),
                            p.Adjacent(
@@ -116,9 +116,9 @@ LocationAddArgsValue: p.Parser[LocationAddArgs] = \
                                p.ValidOrMissing(p.RestAsStr()))))
 
 LocationLsArgsValue = p.Empty()
-LocationLsArgs = Tuple[()]
+LocationLsArgs = tuple[()]
 
-LocationRmArgsType = List[str]
+LocationRmArgsType = list[str]
 LocationRmArgsValue: p.Parser[LocationRmArgsType] = p.Remaining(p.List_(p.AnyStr()))
 
 class LocationCommandContextBase(ABC):
@@ -137,9 +137,9 @@ def LocationArgsParser(locations: "Locations") -> p.Parser[LocationArgs]:
     return locations.cmds.parser()
 
 class Locations(StateElement):
-    locations: Dict[Name, Location]
+    locations: dict[Name, Location]
 
-    canonical_to_orig: Dict[str, str]
+    canonical_to_orig: dict[str, str]
     """Maps from canonical names to real names. Used to detect duplicates also."""
 
     state: State
@@ -272,9 +272,9 @@ class Locations(StateElement):
         del self.canonical_to_orig[canonical]
         await self.state.save()
 
-    def nearest_location(self, location: Location) -> Tuple[Optional[str], Optional[Location]]:
+    def nearest_location(self, location: Location) -> tuple[Optional[str], Optional[Location]]:
         # The return type is just more practical on Python this way.. At least before Python 3.9.
-        nearest: Optional[Tuple[str, Location, float]] = None
+        nearest: Optional[tuple[str, Location, float]] = None
         for name, loc_candidate in self.locations.items():
             if not nearest or loc_candidate.km_to(location) < nearest[2]:
                 nearest = (name, loc_candidate, loc_candidate.km_to(location))

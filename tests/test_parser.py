@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 import datetime
-from typing import List, TypeVar, Optional, Tuple
+from typing import TypeVar, Optional
 from enum import Enum
 
 import teslabot.parser as p
@@ -274,8 +274,8 @@ class TestParser(unittest.TestCase):
             self.assertEqual(p
                              .Seq([p.Seq([p.Map(parser=p.Bool(), map=str).base(),
                                                 p.Map(parser=p.AnyStr(), map=str)]),
-                                      p.Map[bool, List[str]](parser=p.Bool(), map=lambda x: [str(x)]),
-                                      p.Map[p.EmptyVal, List[str]](parser=p.Empty(), map=lambda _: [])])
+                                      p.Map[bool, list[str]](parser=p.Bool(), map=lambda x: [str(x)]),
+                                      p.Map[p.EmptyVal, list[str]](parser=p.Empty(), map=lambda _: [])])
                              .parse(["1", "moi", "0"]),
                              p.ParseOK([["True", "moi"], ["False"], []], processed=3))
 

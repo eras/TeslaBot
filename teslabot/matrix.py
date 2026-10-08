@@ -8,7 +8,7 @@ from nio import Event, AsyncClient, MatrixRoom, RoomMessageText, InviteEvent
 from nio.responses import LoginError, LoginResponse, SyncResponse
 from nio.exceptions import OlmUnverifiedDeviceError
 from configparser import ConfigParser
-from typing import Optional, List, Callable, Coroutine, Any, Tuple
+from typing import Optional, Callable, Coroutine, Any
 
 from . import control
 from .control import CommandContext
@@ -52,7 +52,7 @@ class MatrixControl(control.Control):
     _sync_token: Optional[str]
     _init_done: asyncio.Event
 
-    _pending_event_handlers: List[Callable[[], Coroutine[Any, Any, None]]]
+    _pending_event_handlers: list[Callable[[], Coroutine[Any, Any, None]]]
     """Handlers created for received messages during initial sync that we cannot quite handle yet are pushed here."""
 
     def __init__(self, env: Env) -> None:
@@ -106,7 +106,7 @@ class MatrixControl(control.Control):
         self.local_commands.register(commands.Function("sameroom", "Assign control room to be the same as admin room",
                                                        parser.Empty(), self._command_sameroom))
 
-    async def _command_sameroom(self, context: CommandContext, args: Tuple[()]) -> None:
+    async def _command_sameroom(self, context: CommandContext, args: tuple[()]) -> None:
         if context.admin_room:
             await self.send_message(context.to_message_context(), f"Setting room_id = self._admin_room_id (was {self._room_id})")
             self._room_id = self._admin_room_id

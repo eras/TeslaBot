@@ -96,7 +96,9 @@ class DelayTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.state = FileState("tmp/delay-test-state.ini")
         self.save_to_storage = mock.AsyncMock()
-        self.enterContext(mock.patch.object(self.state, "save_to_storage", self.save_to_storage))
+        storage = mock.patch.object(self.state, "save_to_storage", self.save_to_storage)
+        storage.start()
+        self.addCleanup(storage.stop)
         self.mqtt = self.build()
         self.app = mock.Mock(auth_events=[], authorized=True, auth_generation=0)
         self.app._get_vehicle_list = mock.AsyncMock(return_value=[])
@@ -403,7 +405,9 @@ class DelayTests(unittest.IsolatedAsyncioTestCase):
                     await original(topic, payload, **kwargs)
             else:
                 await original(topic, payload, **kwargs)
-        self.enterContext(mock.patch.object(self.broker, "publish", new=publish))
+        publication = mock.patch.object(self.broker, "publish", new=publish)
+        publication.start()
+        self.addCleanup(publication.stop)
         with self.clock.install():
             await self.handle()
             event = await self.clock.next()
@@ -468,7 +472,9 @@ class DelayTests(unittest.IsolatedAsyncioTestCase):
             if topic.endswith("/result"):
                 await self.clock.real_sleep(0.02)
             await original(topic, payload, **kwargs)
-        self.enterContext(mock.patch.object(self.broker, "publish", new=publish))
+        publication = mock.patch.object(self.broker, "publish", new=publish)
+        publication.start()
+        self.addCleanup(publication.stop)
         with self.clock.install():
             await self.handle()
             event = await self.clock.next()
@@ -961,7 +967,9 @@ class RealSDKDelayTests(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 release.wait(2)
             return original(request, **kwargs)
-        self.enterContext(mock.patch.object(self.http, "send", new=send))
+        sending = mock.patch.object(self.http, "send", new=send)
+        sending.start()
+        self.addCleanup(sending.stop)
         with self.clock.install():
             await self.handle()
             (await self.clock.next()).set()

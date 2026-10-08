@@ -1,4 +1,4 @@
-from typing import List, Dict, Union, Optional, Tuple
+from typing import Union, Optional
 from abc import ABC, abstractmethod
 
 class StateException(Exception):
@@ -32,7 +32,7 @@ class Section(ABC):
         ...
 
     @abstractmethod
-    def items(self) -> List[Tuple[str, str]]:
+    def items(self) -> list[tuple[str, str]]:
         ...
 
 class StateElement(ABC):
@@ -47,7 +47,7 @@ class NoFallBack:
 _NOFALLBACK = NoFallBack()
 
 class State(ABC):
-    elements: List[StateElement]
+    elements: list[StateElement]
 
     def __init__(self) -> None:
         self.elements = []
@@ -73,7 +73,7 @@ class State(ABC):
         ...
 
     @abstractmethod
-    def __setitem__(self, section: str, mapping: Dict[str, str]) -> None:
+    def __setitem__(self, section: str, mapping: dict[str, str]) -> None:
         ...
 
     def get(self, section: str, key: str, fallback: Union[Optional[str], NoFallBack] = _NOFALLBACK) -> Optional[str]:

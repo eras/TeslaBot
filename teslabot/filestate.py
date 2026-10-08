@@ -1,5 +1,5 @@
 import os
-from typing import List, Tuple, Dict, Any
+from typing import Any
 from configparser import ConfigParser
 from .state import Section, State
 from google.cloud import firestore # type: ignore
@@ -22,7 +22,7 @@ class FileSection(Section):
         assert isinstance(self.state, FileState)
         self.state._state[self.section].clear()
 
-    def items(self) -> List[Tuple[str, str]]:
+    def items(self) -> list[tuple[str, str]]:
         assert isinstance(self.state, FileState)
         return list(self.state._state[self.section].items())
 
@@ -48,7 +48,7 @@ class FileState(State):
 
     async def save_to_storage(self) -> None:
         if self._state_ref is not None:
-            data: Dict[str, Dict[str, Any]] = parser_to_dict(self._state)
+            data: dict[str, dict[str, Any]] = parser_to_dict(self._state)
             self._state_ref.set(data)
         else:
             tmp_file_name = self.filename + "~"
@@ -62,5 +62,5 @@ class FileState(State):
     def __getitem__(self, section: str) -> Section:
         return FileSection(self, section)
 
-    def __setitem__(self, section: str, mapping: Dict[str, str]) -> None:
+    def __setitem__(self, section: str, mapping: dict[str, str]) -> None:
         self._state[section] = mapping

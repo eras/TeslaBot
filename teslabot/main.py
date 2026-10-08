@@ -9,7 +9,7 @@ from .env import Env
 from . import tesla
 from . import scheduler
 from . import __version__
-from typing import Dict, Union
+from typing import Union
 from google.cloud import firestore # type: ignore
 from .plugin_exception import PluginException
 
@@ -39,7 +39,7 @@ async def async_main() -> None:
 
     logger.info("Starting")
     try:
-        secrets: Union[Dict[str, Dict[str, str]], None] = None
+        secrets: Union[dict[str, dict[str, str]], None] = None
         try:
             from importlib import metadata # type: ignore
             if os.getenv("ENVIRONMENT") == "gcp":

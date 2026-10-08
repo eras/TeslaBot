@@ -1,7 +1,6 @@
 import asyncio
 import unittest
 import time
-from typing import List
 from teslabot import utils
 
 class TestUtils(unittest.TestCase):
@@ -82,7 +81,7 @@ class TestUtils(unittest.TestCase):
 
         with self.subTest():
             async def test5() -> None:
-                report: List[bool] = []
+                report: list[bool] = []
                 async def report_fn() -> None:
                     raise Exception("err")
                 async def work_fn() -> int:

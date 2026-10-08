@@ -2,18 +2,14 @@ import asyncio
 import collections.abc
 import contextlib
 from typing import (
-    List,
     Optional,
-    Tuple,
     Callable,
     Awaitable,
     Any,
     TypeVar,
-    Dict,
     Union,
     cast,
     NewType,
-    Set,
     AsyncIterator,
     Literal,
     overload,
@@ -99,7 +95,7 @@ def plain_data(value: Any) -> Any:
     raise VehicleException(f"Unsupported Tesla data value: {value!r} ({type(value).__name__})")
 
 
-def data_section(data: Dict[str, Any], name: str) -> Dict[str, Any]:
+def data_section(data: dict[str, Any], name: str) -> dict[str, Any]:
     value = data.get(name)
     return value if isinstance(value, dict) else {}
 
@@ -142,7 +138,7 @@ class VehicleSnapshot:
     inside_temp: Optional[float]
     outside_temp: Optional[float]
     temperature_unit: str
-    data: Dict[str, Any]  # Detached plain data, never a live SDK Vehicle/session.
+    data: dict[str, Any]  # Detached plain data, never a live SDK Vehicle/session.
     seat_heater_left: Optional[int] = None
     seat_heater_right: Optional[int] = None
     seat_heater_rear_left: Optional[int] = None
@@ -215,26 +211,26 @@ class LocationDetail(Enum):
 
 class ChargeOp(ABC):
     @abstractmethod
-    def get_command(self) -> Tuple[str, Dict[str, Any]]: ...
+    def get_command(self) -> tuple[str, dict[str, Any]]: ...
 
 
 class ChargeOpStart(ChargeOp):
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("START_CHARGE", {})
 
 
 class ChargeOpStop(ChargeOp):
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("STOP_CHARGE", {})
 
 
 class ChargeOpPortOpen(ChargeOp):
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("CHARGE_PORT_DOOR_OPEN", {})
 
 
 class ChargeOpPortClose(ChargeOp):
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("CHARGE_PORT_DOOR_CLOSE", {})
 
 
@@ -246,7 +242,7 @@ class ChargeOpSetAmps(ChargeOp):
         if amps < 0 or amps > 32:
             raise ArgException("Amps should be in range 0..32")
 
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("CHARGING_AMPS", {"charging_amps": str(self.amps)})
 
 
@@ -258,7 +254,7 @@ class ChargeOpSetLimit(ChargeOp):
         if percent < 0 or percent > 100:
             raise ArgException("Percentage should be in range 0..100")
 
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("CHANGE_CHARGE_LIMIT", {"percent": str(self.percent)})
 
 
@@ -270,7 +266,7 @@ class ChargeOpSchedulingEnable(ChargeOp):
         if minutes_past_midnight < 0 or minutes_past_midnight >= 24 * 60:
             raise ArgException("Scheduled time does not fall within the day")
 
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return (
             "SCHEDULED_CHARGING",
             {"enable": True, "time": self.minutes_past_midnight},
@@ -278,7 +274,7 @@ class ChargeOpSchedulingEnable(ChargeOp):
 
 
 class ChargeOpSchedulingDisable(ChargeOp):
-    def get_command(self) -> Tuple[str, Dict[str, Any]]:
+    def get_command(self) -> tuple[str, dict[str, Any]]:
         return ("SCHEDULED_CHARGING", {"enable": False, "time": None})
 
 
@@ -300,7 +296,7 @@ class AppState(StateElement):
         state["control"]["require_bang"] = str(self.app.control.require_bang)
 
 
-ClimateArgs = Tuple[Tuple[bool, Optional[VehicleName]], Tuple[()]]
+ClimateArgs = tuple[tuple[bool, Optional[VehicleName]], tuple[()]]
 
 
 def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
@@ -309,7 +305,7 @@ def valid_on_off_vehicle(app: "App") -> p.Parser[ClimateArgs]:
     )
 
 
-InfoArgs = Tuple[Tuple[Optional[str], Optional[VehicleName]], Tuple[()]]
+InfoArgs = tuple[tuple[Optional[str], Optional[VehicleName]], tuple[()]]
 
 
 def valid_info(app: "App") -> p.Parser[InfoArgs]:
@@ -322,14 +318,14 @@ def valid_info(app: "App") -> p.Parser[InfoArgs]:
     )
 
 
-LockUnlockArgs = Tuple[Optional[VehicleName], Tuple[()]]
+LockUnlockArgs = tuple[Optional[VehicleName], tuple[()]]
 
 
 def valid_lock_unlock(app: "App") -> p.Parser[LockUnlockArgs]:
     return p.Adjacent(p.ValidOrMissing(ValidVehicle(app)), p.Empty())
 
 
-ChargeArgs = Tuple[Tuple[ChargeOp, Optional[VehicleName]], Tuple[()]]
+ChargeArgs = tuple[tuple[ChargeOp, Optional[VehicleName]], tuple[()]]
 
 
 def valid_charge(app: "App") -> p.Parser[ChargeArgs]:
@@ -371,7 +367,7 @@ class HeaterObject(ABC):
     @abstractmethod
     def get_command(
         self, heater_level: "HeaterLevel"
-    ) -> Tuple[str, Dict[str, Any]]: ...
+    ) -> tuple[str, dict[str, Any]]: ...
 
 
 class HeaterSeat(HeaterObject):
@@ -382,7 +378,7 @@ class HeaterSeat(HeaterObject):
         if seat < 1 or seat > 6:
             raise ArgException("Seat should be in range 1..6")
 
-    def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
+    def get_command(self, heater_level: "HeaterLevel") -> tuple[str, dict[str, Any]]:
         return (
             "REMOTE_SEAT_HEATER_REQUEST",
             {"heater": self.seat - 1, "level": heater_level.numeric()},
@@ -390,7 +386,7 @@ class HeaterSeat(HeaterObject):
 
 
 class HeaterSteering(HeaterObject):
-    def get_command(self, heater_level: "HeaterLevel") -> Tuple[str, Dict[str, Any]]:
+    def get_command(self, heater_level: "HeaterLevel") -> tuple[str, dict[str, Any]]:
         return ("REMOTE_STEERING_WHEEL_HEATER_REQUEST", {"on": heater_level.binary()})
 
 
@@ -417,8 +413,8 @@ class HeaterLevel(Enum):
         }[self]
 
 
-HeaterArgs = Tuple[
-    Tuple[Tuple[HeaterObject, HeaterLevel], Optional[VehicleName]], Tuple[()]
+HeaterArgs = tuple[
+    tuple[tuple[HeaterObject, HeaterLevel], Optional[VehicleName]], tuple[()]
 ]
 
 
@@ -441,7 +437,7 @@ def valid_heater(app: "App") -> p.Parser[HeaterArgs]:
     )
 
 
-ShareArgs = Tuple[Tuple[str, Optional[VehicleName]], Tuple[()]]
+ShareArgs = tuple[tuple[str, Optional[VehicleName]], tuple[()]]
 
 
 def valid_share(app: "App") -> p.Parser[ShareArgs]:
@@ -450,7 +446,7 @@ def valid_share(app: "App") -> p.Parser[ShareArgs]:
     )
 
 
-def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[Tuple[str, T]]:
+def cmd_adjacent(label: str, parser: p.Parser[T]) -> p.Parser[tuple[str, T]]:
     return p.Labeled(
         label=label, parser=p.Adjacent(p.CaptureFixedStr(label), parser).base()
     )
@@ -480,14 +476,14 @@ def format_km(km: float) -> str:
         return f"{km:.2f} km"
 
 
-def cache_load() -> Dict[str, Any]:
-    cache: Dict[str, Any] = (
+def cache_load() -> dict[str, Any]:
+    cache: dict[str, Any] = (
         firestore.Client().collection("tesla").document("cache").get().to_dict()
     )
     return cache
 
 
-def cache_dump(cache: Dict[str, Any]) -> None:
+def cache_dump(cache: dict[str, Any]) -> None:
     cache_doc = firestore.Client().collection("tesla").document("cache")
     cache_doc.set(cache)
 
@@ -532,9 +528,9 @@ class App(ControlCallback):
     _scheduler: AppScheduler[None]
     locations: Locations
     location_detail: LocationDetail
-    cached_vehicle_list: List[Dict[str, Any]]
-    _prev_info: Dict[str, str]
-    override_vehicles_lc: Set[str]  # If empty, query for devices
+    cached_vehicle_list: list[dict[str, Any]]
+    _prev_info: dict[str, str]
+    override_vehicles_lc: set[str]  # If empty, query for devices
 
     def __init__(self, control: Control, env: Env) -> None:
         self.control = control
@@ -558,11 +554,11 @@ class App(ControlCallback):
         self._operation_owner: Optional[asyncio.Task[Any]] = None
         self._auth_lock = asyncio.Lock()
         self.auth_generation = 0
-        self.auth_events: List[asyncio.Event] = []
+        self.auth_events: list[asyncio.Event] = []
         self._auth_transition = False
         control.callback = self
-        cache_loader: Union[Callable[[], Dict[str, Any]], None] = None
-        cache_dumper: Union[Callable[[Dict[str, Any]], None], None] = None
+        cache_loader: Union[Callable[[], dict[str, Any]], None] = None
+        cache_dumper: Union[Callable[[dict[str, Any]], None], None] = None
         if self.config.get("common", "storage") == "cloud":
             cache_loader = cache_load
             cache_dumper = cache_dump
@@ -740,13 +736,13 @@ class App(ControlCallback):
         )
 
     async def _command_help(
-        self, command_context: CommandContext, args: Tuple[()]
+        self, command_context: CommandContext, args: tuple[()]
     ) -> None:
         await self.control.send_message(
             command_context.to_message_context(), self._commands.help()
         )
 
-    async def _command_logout(self, context: CommandContext, args: Tuple[()]) -> None:
+    async def _command_logout(self, context: CommandContext, args: tuple[()]) -> None:
         if not context.admin_room:
             await self.control.send_message(
                 context.to_message_context(),
@@ -869,7 +865,7 @@ class App(ControlCallback):
         )
 
     async def _command_set_override_vehicles(
-        self, context: CommandContext, args: List[str]
+        self, context: CommandContext, args: list[str]
     ) -> None:
         self.override_vehicles_lc = {arg.lower() for arg in args}
         self._auth_changed(self.authorized)
@@ -960,18 +956,18 @@ class App(ControlCallback):
                 return url if generation == self.auth_generation and not self.authorized else None
 
     @overload
-    async def _get_vehicle_list(self, sdk_objects: Literal[True]) -> List[teslapy.Vehicle]: ...
+    async def _get_vehicle_list(self, sdk_objects: Literal[True]) -> list[teslapy.Vehicle]: ...
 
     @overload
-    async def _get_vehicle_list(self, sdk_objects: Literal[False] = False) -> List[Dict[str, Any]]: ...
+    async def _get_vehicle_list(self, sdk_objects: Literal[False] = False) -> list[dict[str, Any]]: ...
 
-    async def _get_vehicle_list(self, sdk_objects: bool = False) -> List[Any]:
+    async def _get_vehicle_list(self, sdk_objects: bool = False) -> list[Any]:
         if sdk_objects and self._operation_owner is not asyncio.current_task():
             raise AppException("SDK vehicle selection requires the Tesla operation gate")
         if not self.authorized:
             raise AppException("Tesla authorization required")
         generation = self.auth_generation
-        def call() -> Tuple[List[teslapy.Vehicle], List[Dict[str, Any]]]:
+        def call() -> tuple[list[teslapy.Vehicle], list[dict[str, Any]]]:
             vehicle_list = self.tesla.vehicle_list()
             if self.override_vehicles_lc != set():
                 vehicle_list = [
@@ -990,10 +986,12 @@ class App(ControlCallback):
             raise AppException("Authorization changed; enumeration discarded")
         vehicles, metadata = result_or_error
         self.cached_vehicle_list = metadata
-        return vehicles if sdk_objects else metadata
+        if sdk_objects:
+            return vehicles
+        return metadata
 
     async def _command_vehicles(
-        self, context: CommandContext, valid: Tuple[()]
+        self, context: CommandContext, valid: tuple[()]
     ) -> None:
         vehicles = await self._get_vehicle_list()
         await self.control.send_message(
@@ -1220,7 +1218,7 @@ class App(ControlCallback):
     async def _perform_action(
         self, vehicle_name: Optional[str], action: str,
         requested_value: Union[bool, int], command: str,
-        kwargs: Optional[Dict[str, Any]] = None,
+        kwargs: Optional[dict[str, Any]] = None,
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
     ) -> ActionResult:
@@ -1307,7 +1305,7 @@ class App(ControlCallback):
             snapshot = await self.refresh_vehicle(vehicle_name, context)
             data = snapshot.data
             logger.debug("data: %s", data)
-            def required(section: str, key: str, kinds: Tuple[type, ...], nullable: bool = False) -> Any:
+            def required(section: str, key: str, kinds: tuple[type, ...], nullable: bool = False) -> Any:
                 values = data_section(data, section)
                 value = values.get(key)
                 if key not in values or (value is None and not nullable):
@@ -1374,7 +1372,7 @@ class App(ControlCallback):
             message = ""
             last_topic = ""
             buffer = ""
-            pending_info: Dict[str, str] = {}
+            pending_info: dict[str, str] = {}
             # Scheduled output is full and never advances an interactive
             # destination's presentation history.
             destination = (id(context.to_message_context().origin), context.admin_room)
@@ -1658,7 +1656,7 @@ class App(ControlCallback):
         context: Optional[CommandContext] = None,
         vehicle_id: Optional[str] = None,
         on_selected: Optional[Callable[[teslapy.Vehicle], None]] = None,
-    ) -> Tuple[Dict[str, Any], T]:
+    ) -> tuple[dict[str, Any], T]:
         generation = self.auth_generation
         async with self._operation():
             if not self.authorized:
@@ -1670,7 +1668,7 @@ class App(ControlCallback):
             await self._wake(context, vehicle)
             if generation != self.auth_generation:
                 raise AppException("Authorization changed; request discarded")
-            def call() -> Tuple[Dict[str, Any], T]:
+            def call() -> tuple[dict[str, Any], T]:
                 result = fn(vehicle)
                 return plain_data(vehicle), result
             metadata, result = await self._retry_to_async(call)

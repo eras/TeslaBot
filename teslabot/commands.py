@@ -2,7 +2,7 @@ import re
 import logging
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import List, Callable, Coroutine, Any, TypeVar, Generic, Optional, Tuple, Mapping, Union, Awaitable
+from typing import Callable, Coroutine, Any, TypeVar, Generic, Optional, Mapping, Union, Awaitable
 from .parser import Parser, ParseResult, ParseOK, ParseFail
 from .utils import assert_some
 
@@ -29,20 +29,20 @@ class MarkedWord:
     word: str
     marked: bool
 
-def mark_words(args: List[str], processed: int) -> List[MarkedWord]:
+def mark_words(args: list[str], processed: int) -> list[MarkedWord]:
     return [MarkedWord(word=word, marked=idx == processed) for idx, word in enumerate(args)]
 
 class CommandParseError(ParseError):
-    marked_args: List[MarkedWord]
+    marked_args: list[MarkedWord]
 
-    def __init__(self, message: str, marked_args: List[MarkedWord]) -> None:
+    def __init__(self, message: str, marked_args: list[MarkedWord]) -> None:
         super().__init__(message)
         self.marked_args = marked_args
 
 @dataclass
 class Invocation:
     name: str
-    args: List[str]
+    args: list[str]
 
     @staticmethod
     def parse(message: str) -> "Invocation":
@@ -75,7 +75,7 @@ class Command(ABC, Generic[Context]):
 
 class Function(Command[Context], Generic[Context, Parsed]):
     parser: Parser[Parsed]
-    fn: List[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
+    fn: list[Callable[[Context, Parsed], Coroutine[Any, Any, None]]]
 
     def __init__(self, name: str, description: str,
                  parser: Parser[Parsed],
@@ -104,7 +104,7 @@ class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None
     def __init__(self, commands: "Commands[Context]") -> None:
         self.commands = commands
 
-    def parse(self, args: List[str]) -> ParseResult[Callable[[Context], Awaitable[None]]]:
+    def parse(self, args: list[str]) -> ParseResult[Callable[[Context], Awaitable[None]]]:
         if len(args) == 0:
             return ParseFail("No command name", processed=0)
         invocation = Invocation(args[0], args[1:])
@@ -116,7 +116,7 @@ class CommandsParser(Generic[Context], Parser[Callable[[Context], Awaitable[None
             return ParseFail(f"No such command: {invocation.name}", processed=0)
 
 class Commands(Generic[Context]):
-    _commands: List[Command[Context]]
+    _commands: list[Command[Context]]
 
     def __init__(self) -> None:
         self._commands = []
@@ -138,7 +138,7 @@ class Commands(Generic[Context]):
                 await command.invoke(context, invocation)
 
     def help(self) -> str:
-        results: List[str] = []
+        results: list[str] = []
         for command in self._commands:
             results.append(f"{command.name}: {command.description}")
         return "\n".join(results)

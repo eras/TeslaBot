@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 import datetime
-from typing import List, TypeVar, Optional, Tuple
+from typing import TypeVar, Optional
 from enum import Enum
 
 import teslabot.commands as c
@@ -14,7 +14,7 @@ class TestCommands(unittest.TestCase):
         super().__init__(method_name)
         self.longMessage = True
 
-    def setup_commands(self, called: List[Optional[Result]], valid: p.Parser[Result]) -> c.Commands[None]:
+    def setup_commands(self, called: list[Optional[Result]], valid: p.Parser[Result]) -> c.Commands[None]:
         cmds = c.Commands[None]()
         async def command0(context: None, valid: Result) -> None:
             called[0] = valid
@@ -26,7 +26,7 @@ class TestCommands(unittest.TestCase):
 
     def test_simple_call(self) -> None:
         async def test() -> None:
-            called: List[Optional[p.EmptyVal]] = [None, None]
+            called: list[Optional[p.EmptyVal]] = [None, None]
             cmds = self.setup_commands(called, p.Empty())
             await cmds.invoke(None, c.Invocation(name="test0", args=[]))
             self.assertIsNotNone(called[0], "Command test0 was not called")
@@ -35,7 +35,7 @@ class TestCommands(unittest.TestCase):
 
     def test_validated_call(self) -> None:
         async def test() -> None:
-            called: List[Optional[str]] = [None, None]
+            called: list[Optional[str]] = [None, None]
             cmds = self.setup_commands(called, p.AnyStr())
             await cmds.invoke(None, c.Invocation(name="test0", args=["arg1"]))
             self.assertEqual(called[0], "arg1", "Command test0 was not called")

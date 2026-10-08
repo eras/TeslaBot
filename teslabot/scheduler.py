@@ -8,7 +8,7 @@ import unittest
 import traceback
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Awaitable, Callable, Tuple, Coroutine, Any, TypeVar, Generic
+from typing import Optional, Awaitable, Callable, Coroutine, Any, TypeVar, Generic
 from typing_extensions import Protocol
 from .utils import round_to_next_second, assert_some
 
@@ -139,12 +139,12 @@ async def default_sleep(delta: float, condition: asyncio.Condition) -> None:
 class Scheduler(Generic[Context]):
     now: TimeProtocol
     sleep: AsyncSleepProtocol
-    _entries: List[Entry[Context]]
+    _entries: list[Entry[Context]]
     _entries_cond: asyncio.Condition
     _task: Optional["asyncio.Task[None]"]
 
     def __init__(self) -> None:
-        self._entries = [] # type: List[Entry[Context]]
+        self._entries = [] # type: list[Entry[Context]]
         self._entries_cond = asyncio.Condition()
         self._task = None
         async def get_time() -> float:
@@ -166,8 +166,8 @@ class Scheduler(Generic[Context]):
         self._task = None
         logger.info(f"Stopped")
 
-    def get_earliest(self, now: float, blacklist: Tuple[float, List[Entry[Context]]] = (0.0, [])) -> Optional[Tuple[float, Entry[Context]]]:
-        earliest: Optional[Tuple[float, Entry[Context]]] = None
+    def get_earliest(self, now: float, blacklist: tuple[float, list[Entry[Context]]] = (0.0, [])) -> Optional[tuple[float, Entry[Context]]]:
+        earliest: Optional[tuple[float, Entry[Context]]] = None
         for entry in self._entries:
             when = entry.when_is_next(now)
             if when is not None \
@@ -178,10 +178,10 @@ class Scheduler(Generic[Context]):
 
     async def _scheduler(self) -> None:
         try:
-            previously_activated: List[Entry[Context]] = []
+            previously_activated: list[Entry[Context]] = []
             previously_activate_time = 0.0
             while True:
-                earliest: List[Optional[Tuple[float, Entry[Context]]]] = [None]
+                earliest: list[Optional[tuple[float, Entry[Context]]]] = [None]
                 now = await self.now()
                 async with self._entries_cond:
                     def grab_earliest() -> bool:
@@ -220,14 +220,14 @@ class Scheduler(Generic[Context]):
             logger.exception("Scheduler worker failed")
             raise
 
-    async def get_entries(self) -> List[Entry[Context]]:
+    async def get_entries(self) -> list[Entry[Context]]:
         async with self._entries_cond:
             return self._entries[:]
 
-    async def with_entries(self, fn: Callable[[List[Entry[Context]]], Awaitable[Tuple[List[Entry[Context]], T]]]) -> T:
-        ret_value: List[Optional[T]] = [None]
-        exn_value: List[Optional[Exception]] = [None]
-        async def op(entries: List[Entry[Context]]) -> List[Entry[Context]]:
+    async def with_entries(self, fn: Callable[[list[Entry[Context]]], Awaitable[tuple[list[Entry[Context]], T]]]) -> T:
+        ret_value: list[Optional[T]] = [None]
+        exn_value: list[Optional[Exception]] = [None]
+        async def op(entries: list[Entry[Context]]) -> list[Entry[Context]]:
             logger.debug(f"with_entries in {entries}")
             try:
                 entries, value = await fn(entries)
@@ -243,19 +243,19 @@ class Scheduler(Generic[Context]):
             return assert_some(ret_value[0])
 
     async def add(self, entry: Entry[Context]) -> None:
-        async def adder(entries: List[Entry[Context]]) -> List[Entry[Context]]:
+        async def adder(entries: list[Entry[Context]]) -> list[Entry[Context]]:
             logger.info(f"Adding entry {entry}")
             entries.append(entry)
             return entries
         await self.update_entries(adder)
 
     async def remove(self, entry: Entry[Context]) -> None:
-        async def remover(entries: List[Entry[Context]]) -> List[Entry[Context]]:
+        async def remover(entries: list[Entry[Context]]) -> list[Entry[Context]]:
             logger.info(f"Removing entry {entry}")
             return [e for e in entries if e is not entry]
         await self.update_entries(remover)
 
-    async def update_entries(self, updater: Callable[[List[Entry[Context]]], Awaitable[List[Entry[Context]]]]) -> None:
+    async def update_entries(self, updater: Callable[[list[Entry[Context]]], Awaitable[list[Entry[Context]]]]) -> None:
         async with self._entries_cond:
             logger.info(f"Updating entries")
             self._entries = await updater(self._entries)
@@ -414,7 +414,7 @@ class TestSchedule(aiounittest.AsyncTestCase): # type: ignore
 
     async def test_add_live2(self) -> None:
         now = [0.0]
-        executions = [] # type: List[Tuple[float, str]]
+        executions = [] # type: list[tuple[float, str]]
         executions_cond = asyncio.Condition()
         async def fake_sleep(delta: float, condition: asyncio.Condition) -> None:
             #print(f"\"sleeping\" for {delta}")

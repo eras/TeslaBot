@@ -6,7 +6,7 @@ import ssl
 import hashlib
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 import oauthlib.oauth2
 import requests.exceptions
 import teslapy
@@ -31,8 +31,8 @@ class _Session:
     client: Any
     generation: int
     active: bool = True
-    jobs: Dict[str, asyncio.Task[None]] = field(default_factory=dict)
-    tokens: Dict[str, object] = field(default_factory=dict)
+    jobs: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    tokens: dict[str, object] = field(default_factory=dict)
     cancelling: set[asyncio.Task[None]] = field(default_factory=set)
     failed: asyncio.Event = field(default_factory=asyncio.Event)
     error: Optional[Exception] = None
@@ -55,7 +55,7 @@ class MqttControl(control.Control):
         if not self.prefix or not self.discovery_prefix or any(c in self.prefix + self.discovery_prefix for c in "+#"):
             raise control.ConfigError("Invalid MQTT topic prefix")
         self.app: Optional[App] = None
-        self.vehicles: Dict[str, str] = {}
+        self.vehicles: dict[str, str] = {}
         self._state = env.state
         self._manifest_key = hashlib.sha256(json.dumps([self.host, self.port, self.prefix, self.discovery_prefix]).encode()).hexdigest()
         # Preserve shipped default discovery IDs; distinct custom prefixes own
@@ -88,11 +88,11 @@ class MqttControl(control.Control):
         # never forward authorization URLs or unrestricted command output.
         logger.debug("Ignoring chat message in MQTT mode")
 
-    def _discovery(self, vehicle_id: str, name: str) -> Dict[str, Dict[str, Any]]:
+    def _discovery(self, vehicle_id: str, name: str) -> dict[str, dict[str, Any]]:
         base = f"{self.prefix}/{vehicle_id}"
         device = {"identifiers": [f"teslabot_{vehicle_id}"], "name": name, "manufacturer": "Tesla"}
         state = f"{base}/state"
-        common: Dict[str, Any] = {"device": device,
+        common: dict[str, Any] = {"device": device,
                                   "availability_topic": f"{self.prefix}/availability"}
         entities = {
             "sensor/battery": dict(common, name="Battery", unique_id=f"teslabot_{vehicle_id}_battery",
@@ -449,7 +449,7 @@ class MqttControl(control.Control):
         if self._valid(session):
             await self._publish_delay(session.client)
 
-    def _delay_discovery(self) -> Dict[str, Any]:
+    def _delay_discovery(self) -> dict[str, Any]:
         return {"name": "Action refresh delay", "unique_id": f"{self._entity_prefix}_action_refresh_delay",
                 "device": self._instance_device(),
                 "availability_topic": f"{self.prefix}/availability", "entity_category": "config",
@@ -457,10 +457,10 @@ class MqttControl(control.Control):
                 "state_topic": f"{self.prefix}/action_refresh_delay/state",
                 "unit_of_measurement": "s", "min": 0, "max": 300, "step": 1, "mode": "box", "qos": 0, "retain": False}
 
-    def _instance_device(self) -> Dict[str, Any]:
+    def _instance_device(self) -> dict[str, Any]:
         return {"identifiers": [f"{self._entity_prefix}_instance"], "name": "TeslaBot", "sw_version": __version__}
 
-    def _version_discovery(self) -> Dict[str, Any]:
+    def _version_discovery(self) -> dict[str, Any]:
         return {"name": "TeslaBot version", "unique_id": f"{self._entity_prefix}_version",
                 "device": self._instance_device(), "entity_category": "diagnostic",
                 "availability_topic": f"{self.prefix}/availability", "state_topic": f"{self.prefix}/version",
@@ -570,7 +570,11 @@ class MqttControl(control.Control):
                                     if session.active and session.generation == app.auth_generation and not app.authorized:
                                         continue
                                     return
-                                await self._handle(client, str(message.topic), message.payload.decode("utf-8", errors="replace"), message.retain)
+                                # Incoming Paho messages carry bytes; aiomqtt also
+                                # annotates payload types accepted for publication.
+                                payload = message.payload
+                                assert isinstance(payload, (bytes, bytearray)), f"Unexpected MQTT payload: {payload!r}"
+                                await self._handle(client, str(message.topic), payload.decode("utf-8", errors="replace"), message.retain)
                             raise control.ControlException("MQTT message stream returned unexpectedly")
                         receiver = asyncio.create_task(receive())
                         session.receiver = receiver
