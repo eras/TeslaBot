@@ -1,7 +1,7 @@
 import asyncio
 from typing import Callable, TypeVar, Generic, Union
 from dataclasses import dataclass
-T = TypeVar('T', covariant=True)
+T = TypeVar('T')
 
 @dataclass
 class Value(Generic[T]):

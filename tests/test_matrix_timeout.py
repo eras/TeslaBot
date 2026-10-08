@@ -4,7 +4,7 @@ import datetime
 import types
 import unittest
 from unittest import mock
-from typing import Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Coroutine, Iterable, Iterator, Optional, TypeVar
 
 import aiohttp
 import nio
@@ -18,15 +18,17 @@ import tests.test_multi_control as multi_tests
 import tests.test_multi_control_review as review_tests
 from teslabot.mqtt import MqttControl
 
+T = TypeVar("T")
+
 
 class EncryptedNetwork:
     """Real nio room_send/share_group_session with fake crypto and HTTP I/O."""
-    def __init__(self, client, sleep, scale):
+    def __init__(self, client: Any, sleep: Callable[[float], Awaitable[None]], scale: float) -> None:
         self.client = client
         self.sleep, self.scale = sleep, scale
         self.room_id = "!encrypted:example.com"
-        self.calls = []
-        self.active = set()
+        self.calls: list[tuple[Any, str, str, Any]] = []
+        self.active: set[asyncio.Task[Any]] = set()
         self.claim_delay, self.share_delay, self.delivery_delay = 15, 35, 20
         self.claim_started = asyncio.Event()
         self.claim_block: Optional[asyncio.Event] = None
@@ -49,13 +51,19 @@ class EncryptedNetwork:
         room.members_synced = True
         room.users["@user:example.com"] = mock.Mock()
         client.rooms[self.room_id] = room
-        client.get_missing_sessions = mock.Mock(return_value={"@user:example.com": ["DEVICE"]})
-        client.encrypt = mock.Mock(return_value=("m.room.encrypted", {"ciphertext": "encrypted-notice"}))
-        client._send = self.send
+        self.patches = [
+            mock.patch.object(client, "get_missing_sessions", return_value={"@user:example.com": ["DEVICE"]}),
+            mock.patch.object(client, "encrypt", return_value=("m.room.encrypted", {"ciphertext": "encrypted-notice"})),
+            mock.patch.object(client, "_send", new=self.send),
+        ]
+        for patch in self.patches:
+            patch.start()
 
-    async def send(self, response_type, method, path, data=None, response_data=None, **kwargs):
+    async def send(self, response_type: Any, method: str, path: str, data: Any = None,
+                   response_data: Any = None, **kwargs: Any) -> Any:
         self.calls.append((response_type, method, path, data))
         task = asyncio.current_task()
+        assert task is not None
         self.active.add(task)
         cancelled = False
         try:
@@ -92,67 +100,72 @@ class EncryptedNetwork:
 
 class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
-        self.tasks = []
+    def setUp(self) -> None:
+        self.tasks: list[asyncio.Task[Any]] = []
         self.real_sleep, self.real_wait_for = asyncio.sleep, asyncio.wait_for
         self.scale = 0.002
-        self.budgets = []
+        self.budgets: list[float | None] = []
         self.matrix, self.env = self.build_control()
         self.network = EncryptedNetwork(self.matrix._client, self.real_sleep, self.scale)
+        for patch in self.network.patches:
+            self.addCleanup(patch.stop)
         self.matrix._room_id = self.matrix._admin_room_id = self.network.room_id
 
-    def build_control(self, settings=None):
+    def build_control(self, settings: dict[str, str] | None = None) -> tuple[MatrixControl, Env]:
         section = {"homeserver": "https://example.com", "mxid": "@bot:example.com",
                    "store_path": "tmp/matrix-timeout-store"}
         section.update(settings or {})
         cfg = Config("unused", {"matrix": section, "mqtt": {"host": "localhost"}})
         state = FileState("tmp/matrix-timeout-state.ini")
-        state.save_to_storage = mock.AsyncMock()
+        storage = mock.patch.object(state, "save_to_storage", new=mock.AsyncMock())
+        storage.start()
+        self.addCleanup(storage.stop)
         env = Env(cfg, state)
         return MatrixControl(env), env
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         self.network.cleanup_release.set()
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         await self.matrix.close()
 
-    def start(self, coroutine):
+    def start(self, coroutine: Coroutine[Any, Any, T]) -> asyncio.Task[T]:
         task = asyncio.create_task(coroutine)
         self.tasks.append(task)
         return task
 
     @contextlib.contextmanager
-    def scaled_deadlines(self):
+    def scaled_deadlines(self) -> Iterator[None]:
         original_wait = asyncio.wait
-        def scaled(timeout):
+        def scaled(timeout: float | None) -> float | None:
             self.assertIn(timeout, (None, 10, self.matrix.readiness_timeout, self.matrix.send_timeout))
             self.budgets.append(timeout)
             return None if timeout is None else timeout * self.scale
-        async def wait_for(awaitable, timeout):
+        async def wait_for(awaitable: Awaitable[T], timeout: float | None) -> T:
             # Check real configured budgets, then enforce them with the real
             # asyncio timeout implementation on a uniformly scaled timeline.
             return await self.real_wait_for(awaitable, scaled(timeout))
-        async def wait(tasks, *, timeout=None, return_when=asyncio.ALL_COMPLETED):
+        async def wait(tasks: Iterable[asyncio.Task[T]], *, timeout: float | None = None,
+                       return_when: str = asyncio.ALL_COMPLETED) -> tuple[set[asyncio.Task[T]], set[asyncio.Task[T]]]:
             return await original_wait(tasks, timeout=None if timeout is None else scaled(timeout), return_when=return_when)
         with mock.patch("teslabot.control.asyncio.wait_for", side_effect=wait_for), \
              mock.patch("teslabot.matrix.asyncio.wait", side_effect=wait):
             yield
 
-    def assert_drained(self):
+    def assert_drained(self) -> None:
         self.assertEqual(self.matrix._send_tasks, {})
         self.assertEqual(self.matrix._client.sharing_session, {})
         self.assertEqual(self.network.active, set())
 
-    async def delayed_ready(self, seconds):
+    async def delayed_ready(self, seconds: float) -> None:
         await self.real_sleep(seconds * self.scale)
         self.matrix._init_done.set()
 
-    async def test_positive_finite_configuration_and_defaults(self):
+    async def test_positive_finite_configuration_and_defaults(self) -> None:
         self.assertEqual((self.matrix.readiness_timeout, self.matrix.send_timeout), (120, 120))
         configured, _ = self.build_control({"readiness_timeout": "0.25", "send_timeout": "300"})
         self.assertEqual((configured.readiness_timeout, configured.send_timeout), (0.25, 300))
@@ -166,7 +179,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn(f"matrix.{key}", str(caught.exception))
                     client.assert_not_called()
 
-    async def test_slow_ready_and_real_encrypted_send_succeed_for_all_routes(self):
+    async def test_slow_ready_and_real_encrypted_send_succeed_for_all_routes(self) -> None:
         for route in ("local", "interactive", "broadcast"):
             with self.subTest(route=route):
                 self.matrix._init_done.clear()
@@ -191,12 +204,14 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(self.matrix._client.olm.share_group_session_parallel.call_args.kwargs["ignore_unverified_devices"])
                 self.assert_drained()
 
-    async def test_custom_phase_budgets_are_not_shortened_by_composite(self):
+    async def test_custom_phase_budgets_are_not_shortened_by_composite(self) -> None:
         # Keep the same virtual budgets/workload but allow full-suite GC pauses.
         self.scale = 0.01
         await self.matrix.close()
         self.matrix, self.env = self.build_control({"readiness_timeout": "30", "send_timeout": "50"})
         self.network = EncryptedNetwork(self.matrix._client, self.real_sleep, self.scale)
+        for patch in self.network.patches:
+            self.addCleanup(patch.stop)
         self.matrix._room_id = self.matrix._admin_room_id = self.network.room_id
         self.network.claim_delay, self.network.share_delay, self.network.delivery_delay = 10, 20, 10
         self.start(self.delayed_ready(20))
@@ -205,7 +220,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.budgets, [None, 30, 50])
         self.assert_drained()
 
-    async def test_readiness_deadline_drops_before_send_and_next_send_works(self):
+    async def test_readiness_deadline_drops_before_send_and_next_send_works(self) -> None:
         self.matrix.readiness_timeout = 20
         with self.scaled_deadlines(), self.assertLogs("teslabot.matrix", "WARNING") as logs:
             with self.assertRaisesRegex(control.MessageSendError, "readiness timed out after 20"):
@@ -220,7 +235,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
             await self.matrix.send_message(control.MessageContext(False), "after readiness timeout")
         self.assert_drained()
 
-    async def test_delivery_deadline_drains_real_nio_share_then_next_send_works(self):
+    async def test_delivery_deadline_drains_real_nio_share_then_next_send_works(self) -> None:
         self.matrix._init_done.set()
         self.matrix.send_timeout = 40
         self.network.share_block = asyncio.Event()
@@ -241,7 +256,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(call[0] is nio.RoomSendResponse for call in self.network.calls), 1)
         self.assert_drained()
 
-    async def test_network_failure_preserves_detail_and_does_not_auto_retry(self):
+    async def test_network_failure_preserves_detail_and_does_not_auto_retry(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_delay = self.network.share_delay = self.network.delivery_delay = 0
         self.network.fail_delivery = True
@@ -257,7 +272,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(call[0] is nio.RoomSendResponse for call in self.network.calls), 2)
         self.assert_drained()
 
-    async def test_caller_cancellation_reaches_both_pending_phases(self):
+    async def test_caller_cancellation_reaches_both_pending_phases(self) -> None:
         for phase in ("readiness", "sharing"):
             with self.subTest(phase=phase), self.scaled_deadlines():
                 self.budgets.clear()
@@ -281,7 +296,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
             await self.matrix.send_message(control.MessageContext(False), "after cancellation")
         self.assert_drained()
 
-    async def test_close_cancels_pending_readiness_and_rejects_new_sends(self):
+    async def test_close_cancels_pending_readiness_and_rejects_new_sends(self) -> None:
         with self.scaled_deadlines():
             caller = self.start(self.matrix.send_message(control.MessageContext(False), "closing before sync"))
             while not self.budgets:
@@ -294,14 +309,13 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.network.calls, [])
         self.assert_drained()
 
-    async def test_close_drains_nio_sharing_tasks_before_client_close(self):
+    async def test_close_drains_nio_sharing_tasks_before_client_close(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_delay = 0
         self.network.share_block = asyncio.Event()
         self.network.hold_cleanup = True
         client_close = mock.AsyncMock(wraps=self.matrix._client.close)
-        self.matrix._client.close = client_close
-        with self.scaled_deadlines():
+        with mock.patch.object(self.matrix._client, "close", new=client_close), self.scaled_deadlines():
             caller = self.start(self.matrix.send_message(control.MessageContext(False), "closing while sharing"))
             await self.real_wait_for(self.network.share_started.wait(), 1)
             closing = self.start(self.matrix.close())
@@ -317,14 +331,16 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
             client_close.assert_awaited_once()
             self.assert_drained()
 
-    async def test_healthy_notifications_ingress_mqtt_and_timer_continue(self):
+    async def test_healthy_notifications_ingress_mqtt_and_timer_continue(self) -> None:
         healthy = multi_tests.Chat()
         notified = asyncio.Event()
         original_send = healthy.send_message
-        async def send(message_context, message):
+        async def send(message_context: control.MessageContext, message: str) -> None:
             await original_send(message_context, message)
             notified.set()
-        healthy.send_message = send
+        sender = mock.patch.object(healthy, "send_message", new=send)
+        sender.start()
+        self.addCleanup(sender.stop)
         mqtt = MqttControl(self.env)
         app = mock.Mock(auth_events=[], auth_generation=0, authorized=True)
         identity = "0123456789abcdef"
@@ -335,21 +351,25 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         online = asyncio.Event()
         result = asyncio.Event()
         class Broker(review_tests.BrokerClient):
-            def __init__(self):
-                self.incoming = asyncio.Queue()
+            def __init__(self) -> None:
+                self.incoming: asyncio.Queue[types.SimpleNamespace] = asyncio.Queue()
                 super().__init__(online)
-            async def receive(self):
+            async def receive(self) -> AsyncIterator[types.SimpleNamespace]:
                 while True:
                     yield await self.incoming.get()
-            async def publish(self, topic, payload, **kwargs):
+            async def publish(self, topic: str, payload: Any, **kwargs: Any) -> None:
                 await super().publish(topic, payload, **kwargs)
                 if topic.endswith("/result"):
                     result.set()
         broker = Broker()
-        self.matrix.setup = mock.AsyncMock()
-        async def run_matrix():
+        setup = mock.patch.object(self.matrix, "setup")
+        setup.start()
+        self.addCleanup(setup.stop)
+        async def run_matrix() -> None:
             await asyncio.Event().wait()
-        self.matrix.run = run_matrix
+        run = mock.patch.object(self.matrix, "run", new=run_matrix)
+        run.start()
+        self.addCleanup(run.stop)
         self.network.share_block = asyncio.Event()
         multi = control.MultiControl([self.matrix, healthy, mqtt])
         with self.scaled_deadlines(), mock.patch("aiomqtt.Client", return_value=broker), \
@@ -378,7 +398,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
             # A scheduled operation proceeds after the finite notification bound.
             self.matrix.send_timeout = 20
             self.network.claim_delay = 0
-            sched = appscheduler.AppScheduler([], self.env.state, multi)
+            sched: appscheduler.AppScheduler[control.CommandContext] = appscheduler.AppScheduler([], self.env.state, multi)
             sched._commands = mock.Mock(invoke=mock.AsyncMock())
             entry = scheduler.OneShot(mock.AsyncMock(), datetime.datetime.now(),
                                       appscheduler.SchedulerContext(appscheduler.AppTimerInfo(1, ["ac", "on"], None)))
@@ -392,15 +412,17 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 await runtime
         await mqtt.close()
 
-    async def test_other_controls_retain_finite_ten_second_bound(self):
+    async def test_other_controls_retain_finite_ten_second_bound(self) -> None:
         stalled = multi_tests.Chat()
         stopped = asyncio.Event()
-        async def never_send(message_context, message):
+        async def never_send(message_context: control.MessageContext, message: str) -> None:
             try:
                 await asyncio.Event().wait()
             finally:
                 stopped.set()
-        stalled.send_message = never_send
+        sender = mock.patch.object(stalled, "send_message", new=never_send)
+        sender.start()
+        self.addCleanup(sender.stop)
         healthy = multi_tests.Chat()
         with self.scaled_deadlines(), self.assertLogs("teslabot.control", "WARNING"):
             await control.MultiControl([stalled, healthy]).send_message(control.MessageContext(False), "bounded broadcast")
@@ -413,14 +435,13 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
                 await control.MultiControl([stalled]).send_message(control.MessageContext(False, stalled), "bounded reply")
         self.assertEqual(self.budgets, [10])
 
-    async def test_caller_cancel_then_close_does_not_recancel_sdk_cleanup(self):
+    async def test_caller_cancel_then_close_does_not_recancel_sdk_cleanup(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_delay = 0
         self.network.share_block = asyncio.Event()
         self.network.hold_cleanup = True
         client_close = mock.AsyncMock(wraps=self.matrix._client.close)
-        self.matrix._client.close = client_close
-        with self.scaled_deadlines():
+        with mock.patch.object(self.matrix._client, "close", new=client_close), self.scaled_deadlines():
             caller = self.start(self.matrix.send_message(control.MessageContext(False), "cancel then close"))
             await self.real_wait_for(self.network.share_started.wait(), 1)
             caller.cancel()
@@ -438,14 +459,13 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         client_close.assert_awaited_once()
         self.assert_drained()
 
-    async def test_repeated_caller_and_concurrent_close_cancellation_drain_once(self):
+    async def test_repeated_caller_and_concurrent_close_cancellation_drain_once(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_delay = 0
         self.network.share_block = asyncio.Event()
         self.network.hold_cleanup = True
         client_close = mock.AsyncMock(wraps=self.matrix._client.close)
-        self.matrix._client.close = client_close
-        with self.scaled_deadlines():
+        with mock.patch.object(self.matrix._client, "close", new=client_close), self.scaled_deadlines():
             caller = self.start(self.matrix.send_message(control.MessageContext(False), "repeated cancellation"))
             await self.real_wait_for(self.network.share_started.wait(), 1)
             caller.cancel()
@@ -471,15 +491,14 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         client_close.assert_awaited_once()
         self.assert_drained()
 
-    async def test_close_during_delivery_deadline_cleanup_does_not_recancel(self):
+    async def test_close_during_delivery_deadline_cleanup_does_not_recancel(self) -> None:
         self.matrix._init_done.set()
         self.matrix.send_timeout = 20
         self.network.claim_delay = 0
         self.network.share_block = asyncio.Event()
         self.network.hold_cleanup = True
         client_close = mock.AsyncMock(wraps=self.matrix._client.close)
-        self.matrix._client.close = client_close
-        with self.scaled_deadlines():
+        with mock.patch.object(self.matrix._client, "close", new=client_close), self.scaled_deadlines():
             caller = self.start(self.matrix.send_message(control.MessageContext(False), "deadline then close"))
             await self.real_wait_for(self.network.cleanup_started.wait(), 1)
             closing = self.start(self.matrix.close())
@@ -494,7 +513,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         client_close.assert_awaited_once()
         self.assert_drained()
 
-    async def test_key_claim_timeout_recovers_for_next_explicit_send(self):
+    async def test_key_claim_timeout_recovers_for_next_explicit_send(self) -> None:
         self.matrix._init_done.set()
         self.matrix.send_timeout = 20
         self.network.claim_block = asyncio.Event()
@@ -518,7 +537,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.matrix._client.olm.share_group_session_parallel.call_args.kwargs["ignore_unverified_devices"])
         self.assert_drained()
 
-    async def test_key_claim_cancellation_with_concurrent_same_room_send(self):
+    async def test_key_claim_cancellation_with_concurrent_same_room_send(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_block = asyncio.Event()
         self.network.hold_cleanup = True
@@ -546,7 +565,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.matrix._client.olm.share_group_session_parallel.call_args.kwargs["ignore_unverified_devices"])
         self.assert_drained()
 
-    async def test_queued_send_timeout_does_not_remove_active_claim_owner_event(self):
+    async def test_queued_send_timeout_does_not_remove_active_claim_owner_event(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_block = asyncio.Event()
         with self.scaled_deadlines(), self.assertLogs("teslabot.matrix", "WARNING"):
@@ -568,7 +587,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(event.is_set())
         self.assert_drained()
 
-    async def test_foreign_sharing_event_is_not_deleted_or_signalled(self):
+    async def test_foreign_sharing_event_is_not_deleted_or_signalled(self) -> None:
         self.matrix._init_done.set()
         self.matrix.send_timeout = 20
         foreign = asyncio.Event()
@@ -590,7 +609,7 @@ class MatrixTimeoutTests(unittest.IsolatedAsyncioTestCase):
             await self.matrix.send_message(control.MessageContext(False), "after foreign owner completes")
         self.assert_drained()
 
-    async def test_replaced_sharing_event_is_not_deleted_or_signalled(self):
+    async def test_replaced_sharing_event_is_not_deleted_or_signalled(self) -> None:
         self.matrix._init_done.set()
         self.network.claim_block = asyncio.Event()
         foreign = asyncio.Event()

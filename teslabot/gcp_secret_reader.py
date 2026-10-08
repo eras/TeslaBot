@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Union
 import os
 
-from google.cloud import secretmanager
+import google.cloud.secretmanager as secretmanager
 from .plugin_exception import PluginException
 
 class GCPException(PluginException):

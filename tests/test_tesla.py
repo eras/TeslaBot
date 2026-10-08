@@ -44,10 +44,10 @@ class FakeTesla:
         self.logout_calls += 1
         self.authorized = False
 
-    def vehicle_list(self):
+    def vehicle_list(self) -> List[Dict[str, Any]]:
         return []
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
@@ -66,6 +66,9 @@ class TestTeslaAuthorization(unittest.TestCase):
         })
         self.control = FakeControl()
         self.app = tesla.App(self.control, Env(config, FileState("test-state.ini")))
+        sdk: object = self.app.tesla
+        assert isinstance(sdk, FakeTesla)
+        self.fake_tesla = sdk
         self.admin_context = CommandContext(admin_room=True, control=self.control, txn="test")
         self.non_admin_context = CommandContext(admin_room=False, control=self.control, txn="test")
 
@@ -77,15 +80,15 @@ class TestTeslaAuthorization(unittest.TestCase):
         asyncio.get_event_loop().run_until_complete(self.app._command_authorized(self.admin_context, None))
 
         self.assertIn("https://auth.tesla.com/oauth2/v3/authorize", self.control.messages[-1][1])
-        self.assertEqual(self.app.tesla.email, "driver@example.com")
-        self.assertEqual(self.app.tesla.kwargs["cache_file"], "test-cache.json")
+        self.assertEqual(self.fake_tesla.email, "driver@example.com")
+        self.assertEqual(self.fake_tesla.kwargs["cache_file"], "test-cache.json")
 
     def test_authorize_exchanges_callback_url_and_reports_success(self) -> None:
         callback_url = "https://auth.tesla.com/void/callback?code=secret"
 
         asyncio.get_event_loop().run_until_complete(self.app._command_authorized(self.admin_context, callback_url))
 
-        self.assertEqual(self.app.tesla.fetch_token_calls, [callback_url])
+        self.assertEqual(self.fake_tesla.fetch_token_calls, [callback_url])
         self.assertEqual(self.control.messages[-1][1], "Authorization successful")
 
     def test_logout_preserves_admin_only_behavior(self) -> None:
@@ -93,10 +96,10 @@ class TestTeslaAuthorization(unittest.TestCase):
 
         asyncio.get_event_loop().run_until_complete(self.app._command_logout(self.non_admin_context, ()))
         self.assertEqual(self.control.messages[-1][1], "Please use the admin room for this command.")
-        self.assertEqual(self.app.tesla.logout_calls, 0)
+        self.assertEqual(self.fake_tesla.logout_calls, 0)
 
         asyncio.get_event_loop().run_until_complete(self.app._command_logout(self.admin_context, ()))
-        self.assertEqual(self.app.tesla.logout_calls, 1)
+        self.assertEqual(self.fake_tesla.logout_calls, 1)
         self.assertEqual(self.control.messages[-1][1], "Logout successful!")
 
     def test_typed_actions_use_existing_tesla_commands(self) -> None:

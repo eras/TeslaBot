@@ -12,7 +12,7 @@ from tests.test_multi_control import Chat
 
 
 class TestLoggingSetup(unittest.TestCase):
-    def test_setup_preserves_sdk_levels_handlers_and_propagation(self):
+    def test_setup_preserves_sdk_levels_handlers_and_propagation(self) -> None:
         root = logging.getLogger()
         app = logging.getLogger("teslabot")
         handlers, app_level = list(root.handlers), app.level
@@ -40,10 +40,10 @@ class TestLoggingSetup(unittest.TestCase):
 
 class TestDiagnosticDetails(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    async def test_command_arguments_and_failed_notification_remain_available(self):
+    async def test_command_arguments_and_failed_notification_remain_available(self) -> None:
         chat = Chat()
         with self.assertLogs("teslabot", "DEBUG") as logs:
             await chat.process_message(control.CommandContext(False, chat, txn="diagnostic-txn"), "!ping unexpected-argument")
@@ -52,39 +52,39 @@ class TestDiagnosticDetails(unittest.IsolatedAsyncioTestCase):
         self.assertIn("diagnostic-txn", text)
         self.assertIn("Command: ['ping', 'unexpected-argument']", text)
         self.assertIn("Traceback (most recent call last)", text)
-        chat.send_message = mock.AsyncMock(side_effect=control.MessageSendError("broker-response-detail"))
         multi = control.MultiControl([chat])
-        with self.assertLogs("teslabot.control", "WARNING") as logs:
+        with mock.patch.object(chat, "send_message", side_effect=control.MessageSendError("broker-response-detail")), \
+             self.assertLogs("teslabot.control", "WARNING") as logs:
             await multi.send_message(control.MessageContext(True), "notification-payload")
         text = "\n".join(logs.output)
         self.assertIn("notification-payload", text)
         self.assertIn("broker-response-detail", text)
         self.assertIn("Traceback (most recent call last)", text)
 
-    async def test_adapter_cleanup_keeps_exception_message_and_traceback(self):
+    async def test_adapter_cleanup_keeps_exception_message_and_traceback(self) -> None:
         chat = Chat()
-        chat.close = mock.AsyncMock(side_effect=RuntimeError("cleanup-response-detail"))
-        with self.assertLogs("teslabot.control", "ERROR") as logs:
+        with mock.patch.object(chat, "close", side_effect=RuntimeError("cleanup-response-detail")), \
+             self.assertLogs("teslabot.control", "ERROR") as logs:
             await control.MultiControl([chat]).close()
         text = "\n".join(logs.output)
         self.assertIn("cleanup-response-detail", text)
         self.assertIn("Traceback (most recent call last)", text)
 
-    async def test_chat_outgoing_payloads_remain_available(self):
+    async def test_chat_outgoing_payloads_remain_available(self) -> None:
         matrix = MatrixControl.__new__(MatrixControl)
         matrix._send_tasks = {}
         matrix._delivery_lock = asyncio.Lock()
         matrix._close_task = None
         matrix._closed = False
         matrix._admin_room_id = "admin-room-id"
-        matrix.wait_ready = mock.AsyncMock()
         matrix._client = mock.Mock(room_send=mock.AsyncMock(return_value=mock.Mock(event_id="event")))
         slack = SlackControl.__new__(SlackControl)
         slack._admin_channel_id = "admin-channel-id"
-        future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[dict[str, bool]] = asyncio.get_running_loop().create_future()
         future.set_result({"ok": True})
         slack._client = mock.Mock(api_call=mock.Mock(return_value=future))
-        with self.assertLogs("teslabot", "INFO") as logs:
+        with mock.patch.object(matrix, "wait_ready", new_callable=mock.AsyncMock), \
+             self.assertLogs("teslabot", "INFO") as logs:
             await matrix.send_message(control.MessageContext(True), "matrix-response-payload")
             await slack.send_message(control.MessageContext(True), "slack-response-payload")
         text = "\n".join(logs.output)

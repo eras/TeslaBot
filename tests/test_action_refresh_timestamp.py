@@ -1,16 +1,22 @@
 import asyncio
 import datetime
+import importlib
 import json
 import threading
+import types
 import unittest
+from typing import Any, Optional
 from unittest import mock
 
+import requests
+
+jinja2: Optional[types.ModuleType]
 try:
-    import jinja2
+    jinja2 = importlib.import_module("jinja2")
 except ImportError:
     jinja2 = None
 
-from teslabot import tesla
+from teslabot import control, tesla
 import tests.test_action_refresh_delay as delay
 
 
@@ -19,27 +25,33 @@ class ObservationClock(datetime.datetime):
     calls = 0
 
     @classmethod
-    def now(cls, tz=None):
+    def now(cls, tz: Optional[datetime.tzinfo] = None) -> "ObservationClock":
         cls.calls += 1
-        return cls.current.replace(tzinfo=None) if tz is None else cls.current.astimezone(tz)
+        current = cls(cls.current.year, cls.current.month, cls.current.day,
+                      cls.current.hour, cls.current.minute, cls.current.second,
+                      cls.current.microsecond, tzinfo=cls.current.tzinfo, fold=cls.current.fold)
+        return current.replace(tzinfo=None) if tz is None else current.astimezone(tz)
 
 
 class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.fixture = delay.RealSDKDelayTests()
         self.fixture.setUp()
         self.mqtt, self.app, self.http = self.fixture.mqtt, self.fixture.app, self.fixture.http
         self.published = self.fixture.fixture.publications
         self.retained = self.fixture.fixture.retained
         self.topic = f"teslabot/{self.fixture.fixture.identity}/state"
-        self.snapshots = []
+        self.snapshots: list[tesla.VehicleSnapshot] = []
         original = self.app.refresh_vehicle
-        async def capture(*args, **kwargs):
-            snapshot = await original(*args, **kwargs)
+        async def capture(
+            vehicle_name: Optional[str], context: Optional[control.CommandContext] = None,
+            vehicle_id: Optional[str] = None,
+        ) -> tesla.VehicleSnapshot:
+            snapshot = await original(vehicle_name, context, vehicle_id)
             self.snapshots.append(snapshot)
             return snapshot
         self.capture = mock.patch.object(self.app, "refresh_vehicle", side_effect=capture)
@@ -47,19 +59,20 @@ class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
         ObservationClock.calls = 0
         ObservationClock.current = datetime.datetime(2026, 10, 3, tzinfo=datetime.timezone.utc)
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         self.capture.stop()
         await self.fixture.asyncTearDown()
 
-    def latest(self):
-        return json.loads(self.retained[self.topic])
+    def latest(self) -> dict[str, Any]:
+        state: dict[str, Any] = json.loads(self.retained[self.topic])
+        return state
 
-    async def read_job(self, event):
+    async def read_job(self, event: asyncio.Event) -> None:
         job = self.fixture.session.jobs[self.fixture.fixture.identity]
         event.set()
         await asyncio.wait_for(job, 1)
 
-    def assert_timestamp(self, expected):
+    def assert_timestamp(self, expected: datetime.datetime) -> dict[str, Any]:
         state = self.latest()
         config = self.mqtt._discovery(self.fixture.fixture.identity, "Synthetic car")["sensor/last_refresh"]
         self.assertEqual(config["state_topic"], self.topic)
@@ -73,10 +86,10 @@ class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(publication[2], {"qos": 1, "retain": True})
         return state
 
-    async def test_optional_ha_template_renders_observed_utc_timestamp(self):
+    async def test_optional_ha_template_renders_observed_utc_timestamp(self) -> None:
         if jinja2 is None:
             self.skipTest("Jinja2 is needed to render the optional HA template check")
-        with mock.patch.object(tesla.datetime, "datetime", ObservationClock):
+        with mock.patch.object(datetime, "datetime", ObservationClock):
             await self.fixture.handle("refresh", "")
             state = self.assert_timestamp(ObservationClock.current)
             config = self.mqtt._discovery(self.fixture.fixture.identity, "Synthetic car")["sensor/last_refresh"]
@@ -84,9 +97,9 @@ class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rendered, ObservationClock.current.isoformat())
             self.assertEqual(datetime.datetime.fromisoformat(rendered), ObservationClock.current)
 
-    async def test_all_automatic_reads_update_ha_timestamp_like_manual_even_unchanged(self):
+    async def test_all_automatic_reads_update_ha_timestamp_like_manual_even_unchanged(self) -> None:
         base = ObservationClock.current
-        with mock.patch.object(tesla.datetime, "datetime", ObservationClock), self.fixture.clock.install():
+        with mock.patch.object(datetime, "datetime", ObservationClock), self.fixture.clock.install():
             for mode in (0, 5):
                 self.mqtt.action_refresh_delay = mode
                 for operation, payload in (("ac", "ON"), ("ac", "OFF"), ("sauna", "ON"),
@@ -117,8 +130,8 @@ class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
                                          {key: value for key, value in previous.items() if key != "observed_at"})
         self.fixture.fixture.assert_worker_requests()
 
-    async def test_failed_reads_and_cancelled_sleep_leave_retained_timestamp(self):
-        with mock.patch.object(tesla.datetime, "datetime", ObservationClock), self.fixture.clock.install():
+    async def test_failed_reads_and_cancelled_sleep_leave_retained_timestamp(self) -> None:
+        with mock.patch.object(datetime, "datetime", ObservationClock), self.fixture.clock.install():
             await self.fixture.handle("refresh", "")
             prior = self.assert_timestamp(ObservationClock.current)
             count = ObservationClock.calls
@@ -151,20 +164,22 @@ class RefreshTimestampTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ObservationClock.calls, count)
         self.fixture.fixture.assert_worker_requests()
 
-    async def test_superseded_inflight_read_cannot_advance_timestamp_before_latest_read(self):
+    async def test_superseded_inflight_read_cannot_advance_timestamp_before_latest_read(self) -> None:
         entered, release = threading.Event(), threading.Event()
         self.fixture.releases.append(release)
         original = self.http.send
-        with mock.patch.object(tesla.datetime, "datetime", ObservationClock), self.fixture.clock.install():
+        with mock.patch.object(datetime, "datetime", ObservationClock), self.fixture.clock.install():
             await self.fixture.handle("refresh", "")
             prior = self.assert_timestamp(ObservationClock.current)
             count = ObservationClock.calls
-            def send(request, **kwargs):
-                if "vehicle_data" in request.url:
+            def send(request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
+                if "vehicle_data" in (request.url or ""):
                     entered.set()
                     release.wait(2)
                 return original(request, **kwargs)
-            self.http.send = send
+            send_patch = mock.patch.object(self.http, "send", side_effect=send)
+            send_patch.start()
+            self.addCleanup(send_patch.stop)
             ObservationClock.current += datetime.timedelta(minutes=1)
             await self.fixture.handle("ac", "ON")
             (await self.fixture.clock.next()).set()

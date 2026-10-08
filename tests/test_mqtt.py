@@ -1,11 +1,15 @@
 import datetime
 import asyncio
+import importlib
 import json
+import types
 import unittest
+from typing import AsyncIterator, Optional
 from unittest import mock
 
+jinja2: Optional[types.ModuleType]
 try:
-    import jinja2
+    jinja2 = importlib.import_module("jinja2")
 except ImportError:
     jinja2 = None
 
@@ -126,7 +130,7 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
             self.skipTest("Jinja2 is needed to render HA templates")
         template = jinja2.Environment().from_string(
             self.control._discovery("id1", "Test vehicle")["switch/ac"]["value_template"])
-        observed = [True, None, False, None, True, {}]
+        observed: list[bool | None | dict[str, object]] = [True, None, False, None, True, {}]
         rendered = [template.render(value_json={"climate_on": value} if not isinstance(value, dict) else value)
                     for value in observed]
         self.assertEqual(rendered, ["ON", "None", "OFF", "None", "ON", "None"])
@@ -142,33 +146,32 @@ class TestMqtt(unittest.IsolatedAsyncioTestCase):
         online = asyncio.Event()
 
         class FakeClient:
-            def __init__(self):
-                self.publications = []
+            def __init__(self) -> None:
+                self.publications: list[tuple[str, str]] = []
                 self.messages = self.receive()
 
-            async def __aenter__(self):
+            async def __aenter__(self) -> "FakeClient":
                 return self
 
-            async def __aexit__(self, *args):
+            async def __aexit__(self, *args: object) -> None:
                 return None
 
-            async def publish(self, topic, payload, **kwargs):
+            async def publish(self, topic: str, payload: str, **kwargs: object) -> None:
                 self.publications.append((topic, payload))
                 if topic == "teslabot/availability" and payload == "online":
                     online.set()
 
-            async def subscribe(self, topic, **kwargs):
+            async def subscribe(self, topic: str, **kwargs: object) -> None:
                 pass
 
-            async def receive(self):
+            async def receive(self) -> AsyncIterator[None]:
                 await asyncio.Event().wait()
                 yield None
 
         client = FakeClient()
         self.app._get_vehicle_list = mock.AsyncMock(return_value=[{"display_name": "Test vehicle"}])
         self.app._vehicle_id.return_value = "0123456789abcdef"
-        self.control._state.save = mock.AsyncMock()
-        with mock.patch("aiomqtt.Client", return_value=client):
+        with mock.patch("aiomqtt.Client", return_value=client), mock.patch.object(self.control._state, "save", new_callable=mock.AsyncMock):
             task = asyncio.create_task(self.control.run())
             await asyncio.wait_for(online.wait(), timeout=2)
             task.cancel()

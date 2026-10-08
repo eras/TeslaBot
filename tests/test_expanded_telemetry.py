@@ -1,12 +1,16 @@
 import asyncio
 import dataclasses
 import datetime
+import importlib
 import json
+import types
 import unittest
+from typing import Any, Optional
 from unittest import mock
 
+jinja2: Optional[types.ModuleType]
 try:
-    import jinja2
+    jinja2 = importlib.import_module("jinja2")
 except ImportError:
     jinja2 = None
 
@@ -37,7 +41,7 @@ LEGACY_ENTITIES = {"sensor/battery", "sensor/charging", "sensor/last_refresh", "
                    "number/charge_limit", "button/refresh", "button/sauna_on", "button/sauna_off"}
 
 
-def telemetry():
+def telemetry() -> dict[str, Any]:
     data = sdk.telemetry()
     data["climate_state"].update(dict(zip(SEATS, (0, 1, 2, 3, 1))))
     data["climate_state"].update(inside_temp=-2.5, outside_temp=0)
@@ -57,10 +61,10 @@ def telemetry():
 
 class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.fixture = delay.RealSDKDelayTests()
         self.fixture.setUp()
         self.app, self.http, self.mqtt = self.fixture.app, self.fixture.http, self.fixture.mqtt
@@ -68,10 +72,10 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.topic = f"teslabot/{self.fixture.fixture.identity}/state"
         self.http.telemetry = telemetry()
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         await self.fixture.asyncTearDown()
 
-    async def observe(self):
+    async def observe(self) -> tuple[tesla.VehicleSnapshot, dict[str, Any]]:
         reads = self.http.data_reads
         result = await self.app.refresh_vehicle(None)
         self.assertEqual(self.http.data_reads, reads + 1)
@@ -83,7 +87,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         json.dumps(state, allow_nan=False)
         return result, state
 
-    async def test_all_groups_real_sdk_detached_explicit_projection_and_fixed_api_units(self):
+    async def test_all_groups_real_sdk_detached_explicit_projection_and_fixed_api_units(self) -> None:
         snapshots = []
         for distance, temperature in (("km/hr", "C"), ("mi/hr", "F")):
             self.http.telemetry["gui_settings"].update(gui_distance_units=distance, gui_temperature_units=temperature)
@@ -125,7 +129,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dataclasses.asdict(snapshots[0]), prior)
         self.assertEqual(self.http.commands, 0)
 
-    async def test_each_seat_and_opening_routes_independently_with_exact_integer_domains(self):
+    async def test_each_seat_and_opening_routes_independently_with_exact_integer_domains(self) -> None:
         for source in SEATS:
             self.http.telemetry["climate_state"].update({key: 0 for key in SEATS})
             self.http.telemetry["climate_state"][source] = 3
@@ -147,7 +151,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         _, state = await self.observe()
         self.assertTrue(all(state[key] is None for key in SEATS))
 
-    async def test_continuous_numeric_domains_preserve_zero_and_reject_bad_types_and_overflow(self):
+    async def test_continuous_numeric_domains_preserve_zero_and_reject_bad_types_and_overflow(self) -> None:
         for value in (0, 0.125, None, -1, True, False, "2.5", float("nan"), float("inf"), -float("inf"), 10 ** 400):
             self.http.telemetry["vehicle_state"].update({key: value for key in WHEELS})
             self.http.telemetry["vehicle_state"]["odometer"] = value
@@ -160,7 +164,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
                                   "software_update_install_percent", "software_update_expected_duration_s"):
                 self.assertEqual(state[key], value if valid else None, key)
             for key in ("odometer_km", "charge_rate_kmh"):
-                self.assertEqual(state[key], value * 1.609344 if valid else None, key)
+                self.assertEqual(state[key], value * 1.609344 if isinstance(value, (int, float)) and valid else None, key)
         self.http.telemetry["vehicle_state"]["odometer"] = 1.7e308
         self.http.telemetry["charge_state"]["charge_rate"] = 1.7e308
         self.http.telemetry["vehicle_state"]["software_update"].update(download_perc=100, install_perc=100.1)
@@ -170,7 +174,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state["software_update_download_percent"], 100)
         self.assertIsNone(state["software_update_install_percent"])
 
-    async def test_eta_uses_same_utc_observation_minutes_then_hours_and_handles_overflow(self):
+    async def test_eta_uses_same_utc_observation_minutes_then_hours_and_handles_overflow(self) -> None:
         clock = timestamp.ObservationClock
         clock.current = datetime.datetime(2026, 10, 3, 12, 34, 56, 123456, tzinfo=datetime.timezone.utc)
         for minutes, hours, expected in (
@@ -180,7 +184,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             (None, False, None), (None, "1", None), (None, float("inf"), None),
             (1e308, 1, None), (None, 1e308, None), (10 ** 400, 0, None),
         ):
-            with self.subTest(minutes=minutes, hours=hours), mock.patch.object(tesla.datetime, "datetime", clock):
+            with self.subTest(minutes=minutes, hours=hours), mock.patch.object(datetime, "datetime", clock):
                 self.http.telemetry["charge_state"].update(minutes_to_full_charge=minutes, time_to_full_charge=hours)
                 result, state = await self.observe()
                 self.assertEqual(state["charge_finish_eta"],
@@ -193,11 +197,12 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(state["charge_finish_eta"])
         self.http.telemetry["charge_state"]["charging_state"] = "Charging"
         clock.current = datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
-        with mock.patch.object(tesla.datetime, "datetime", clock):
+        with mock.patch.object(datetime, "datetime", clock):
             _, state = await self.observe()
             self.assertIsNone(state["charge_finish_eta"])
 
-    async def test_missing_null_nonmapping_sections_reset_only_unsupported_values(self):
+    async def test_missing_null_nonmapping_sections_reset_only_unsupported_values(self) -> None:
+        value: object
         for section in ("climate_state", "charge_state", "vehicle_state"):
             for value in ("missing", None, [], False, 1, "not a mapping"):
                 self.http.telemetry = telemetry()
@@ -229,7 +234,8 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(state[key] is None for key in WHEELS))
         self.assertIsNone(state["software_update_status"])
 
-    async def test_boolean_text_validation_preserves_false_and_full_versions(self):
+    async def test_boolean_text_validation_preserves_false_and_full_versions(self) -> None:
+        value: object
         for value in (True, False, None, 0, 1, "false", [], {}):
             self.http.telemetry["vehicle_state"]["locked"] = value
             self.http.telemetry["charge_state"]["charge_port_door_open"] = value
@@ -244,10 +250,10 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             for key in TEXT:
                 self.assertEqual(state[key], value.strip() or None if type(value) is str else None)
 
-    async def test_manual_and_positive_delayed_auto_update_expanded_state_and_fresh_timestamp(self):
+    async def test_manual_and_positive_delayed_auto_update_expanded_state_and_fresh_timestamp(self) -> None:
         clock = timestamp.ObservationClock
         clock.current = datetime.datetime(2026, 10, 3, tzinfo=datetime.timezone.utc)
-        with mock.patch.object(tesla.datetime, "datetime", clock), self.fixture.clock.install():
+        with mock.patch.object(datetime, "datetime", clock), self.fixture.clock.install():
             await self.fixture.handle("refresh", "")
             before = json.loads(self.fixture.fixture.retained[self.topic])
             reads = self.http.data_reads
@@ -271,7 +277,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.http.commands, 1)
         self.fixture.fixture.assert_worker_requests()
 
-    async def test_chat_range_rate_unit_correction_keeps_current_limit_and_delta(self):
+    async def test_chat_range_rate_unit_correction_keeps_current_limit_and_delta(self) -> None:
         context = control.CommandContext(False, self.fixture.fixture.chat)
         for distance, expected in (("km/hr", "19.7145 km/h"), ("mi/hr", "12.25 mi/h")):
             self.http.telemetry["gui_settings"]["gui_distance_units"] = distance
@@ -283,7 +289,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             await self.app._command_info(context, (("delta", None), ()))
             self.assertEqual(self.fixture.fixture.chat.messages[-1][1], "Nothing changed")
 
-    async def test_failed_and_cancelled_expanded_reads_preserve_retained_state_and_no_new_routes(self):
+    async def test_failed_and_cancelled_expanded_reads_preserve_retained_state_and_no_new_routes(self) -> None:
         with self.fixture.clock.install():
             await self.fixture.handle("refresh", "")
             before = dict(self.fixture.fixture.retained)
@@ -313,7 +319,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.http.calls), calls)
         self.assertEqual(len(self.fixture.fixture.publications), publications)
 
-    async def test_discovery_exact_readonly_entities_units_labels_and_namespace(self):
+    async def test_discovery_exact_readonly_entities_units_labels_and_namespace(self) -> None:
         identity = self.fixture.fixture.identity
         configs = self.mqtt._discovery(identity, "Synthetic car")
         heaters = {"number/" + key for key in SEATS} | {"switch/steering_wheel_heater"}
@@ -365,7 +371,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
             if "state_topic" in config:
                 self.assertEqual(config["state_topic"], f"other/namespace/{identity}/state")
 
-    async def test_optional_templates_reset_known_zero_false_unknown_and_older_payloads(self):
+    async def test_optional_templates_reset_known_zero_false_unknown_and_older_payloads(self) -> None:
         if jinja2 is None:
             self.skipTest("Jinja2 is needed only for actual HA template rendering")
         configs = self.mqtt._discovery(self.fixture.fixture.identity, "Synthetic car")
@@ -395,7 +401,7 @@ class ExpandedTelemetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class InstanceVersionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_multiple_vehicles_share_one_instance_version_outside_manifest(self):
+    async def test_multiple_vehicles_share_one_instance_version_outside_manifest(self) -> None:
         fixture = delay.DelayTests()
         fixture.setUp()
         try:
@@ -414,7 +420,7 @@ class InstanceVersionTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await fixture.asyncTearDown()
 
-    async def test_global_version_without_observation_auth_or_vehicles_and_owned_cleanup(self):
+    async def test_global_version_without_observation_auth_or_vehicles_and_owned_cleanup(self) -> None:
         fixture = delay.DelayTests()
         fixture.setUp()
         mqtt, app, broker = fixture.mqtt, fixture.app, fixture.broker

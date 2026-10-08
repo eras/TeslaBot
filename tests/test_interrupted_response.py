@@ -2,23 +2,30 @@ import asyncio
 import json
 import unittest
 import urllib.parse
+from typing import Any, Coroutine, Iterator, TypeVar
 from unittest import mock
 
 import requests
 import requests.adapters
+import aiomqtt
 import urllib3.exceptions
 
 from teslabot import control, tesla
 from teslabot.mqtt import MqttControl
 import tests.test_multi_control_review as review
+from tests.test_multi_control import Chat
+
+T = TypeVar("T")
 
 
 class ResponseAdapter(requests.adapters.BaseAdapter):
-    def __init__(self, failures):
+    def __init__(self, failures: int) -> None:
         self.failures = failures
         self.products = 0
 
-    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+    def send(self, request: requests.PreparedRequest, stream: bool = False,
+             timeout: Any = None, verify: Any = True, cert: Any = None,
+             proxies: Any = None) -> requests.Response:
         product = urllib.parse.urlparse(request.url or "").path.endswith("/products")
         interrupted = product and self.failures != 0
         if product:
@@ -28,15 +35,15 @@ class ResponseAdapter(requests.adapters.BaseAdapter):
         payload = {"response": [{"display_name": "Test car", "vin": "TESTVIN", "vehicle_id": 1,
                                   "id": 1, "id_s": "1"}] if product else []}
         class Raw:
-            def stream(self, chunk_size, decode_content=True):
+            def stream(self, chunk_size: int, decode_content: bool = True) -> Iterator[bytes]:
                 if interrupted:
                     raise urllib3.exceptions.ProtocolError("SECRET_SENTINEL interrupted response")
                 yield json.dumps(payload).encode()
 
-            def close(self):
+            def close(self) -> None:
                 pass
 
-            def release_conn(self):
+            def release_conn(self) -> None:
                 pass
 
         response = requests.Response()
@@ -46,16 +53,16 @@ class ResponseAdapter(requests.adapters.BaseAdapter):
         response.raw = Raw()
         return response
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         fixture = review.ReviewRegressionTests()
         fixture.setUp()
         self.app, self.chat, self.env = fixture.app, fixture.chat, fixture.env
@@ -66,26 +73,26 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
         self.sdk.mount("https://", self.adapter)
         self.app.tesla = self.sdk
         self.app.authorized = True
-        self.tasks = []
+        self.tasks: list[asyncio.Task[Any]] = []
         self.sleep = asyncio.sleep
-        async def quick_retry(delay):
+        async def quick_retry(delay: float) -> None:
             await self.sleep(0)
         self.retry_sleep = mock.patch("teslabot.tesla.asyncio.sleep", side_effect=quick_retry)
         self.retry_sleep.start()
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.retry_sleep.stop()
         await self.app.close()
 
-    def start(self, coroutine):
+    def start(self, coroutine: Coroutine[Any, Any, T]) -> asyncio.Task[T]:
         task = asyncio.create_task(coroutine)
         self.tasks.append(task)
         return task
 
-    async def test_real_requests_wrapper_is_transient_and_app_recovers(self):
+    async def test_real_requests_wrapper_is_transient_and_app_recovers(self) -> None:
         self.adapter.failures = 2
         with self.assertRaises(requests.exceptions.ChunkedEncodingError) as caught:
             self.sdk.vehicle_list()
@@ -96,20 +103,20 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.adapter.products, 3)
         self.assertTrue(self.app.authorized)
 
-    async def test_chat_real_interrupted_response_recovers_under_supervision(self):
+    async def test_chat_real_interrupted_response_recovers_under_supervision(self) -> None:
         self.adapter.failures = 1
-        healthy = review.Chat()
+        healthy = Chat()
         multi = control.MultiControl([self.chat, healthy])
         multi.callback = self.app
         self.app.control = multi
         processed = asyncio.Event()
         original_run = self.chat.run
-        async def ingress():
+        async def ingress() -> None:
             await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
             processed.set()
             await original_run()
-        self.chat.run = ingress
-        with self.assertLogs("teslabot", "DEBUG") as logs:
+        with mock.patch.object(self.chat, "run", side_effect=ingress), \
+             self.assertLogs("teslabot", "DEBUG") as logs:
             runtime = self.start(multi.run())
             await asyncio.wait_for(processed.wait(), 1)
             self.assertFalse(runtime.done())
@@ -119,9 +126,9 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
             self.assertIn("Traceback (most recent call last)", "\n".join(logs.output))
 
-    async def test_exhausted_chat_and_mqtt_retries_keep_healthy_adapters_alive(self):
+    async def test_exhausted_chat_and_mqtt_retries_keep_healthy_adapters_alive(self) -> None:
         self.adapter.failures = -1
-        healthy = review.Chat()
+        healthy = Chat()
         mqtt = MqttControl(self.env)
         mqtt.set_app(self.app)
         multi = control.MultiControl([self.chat, healthy, mqtt])
@@ -129,18 +136,18 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
         self.app.control = multi
         processed, backing_off = asyncio.Event(), asyncio.Event()
         original_run = self.chat.run
-        async def ingress():
+        async def ingress() -> None:
             await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
             processed.set()
             await original_run()
-        self.chat.run = ingress
-        async def retry(delay):
+        async def retry(delay: float) -> None:
             self.assertEqual(delay, 5)
             backing_off.set()
             await asyncio.Event().wait()
-        mqtt._wait_retry = retry
         broker = review.BrokerClient()
-        with mock.patch("aiomqtt.Client", return_value=broker), self.assertLogs("teslabot", "DEBUG") as logs:
+        with mock.patch.object(self.chat, "run", side_effect=ingress), \
+             mock.patch.object(mqtt, "_wait_retry", side_effect=retry), \
+             mock.patch("aiomqtt.Client", return_value=broker), self.assertLogs("teslabot", "DEBUG") as logs:
             runtime = self.start(multi.run())
             await asyncio.wait_for(processed.wait(), 1)
             await asyncio.wait_for(backing_off.wait(), 1)
@@ -161,7 +168,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
                 await runtime
         await mqtt.close()
 
-    async def test_mqtt_retries_exhausted_real_response_then_recovers_without_polling(self):
+    async def test_mqtt_retries_exhausted_real_response_then_recovers_without_polling(self) -> None:
         self.adapter.failures = 15
         mqtt = MqttControl(self.env)
         mqtt.set_app(self.app)
@@ -169,17 +176,17 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
         multi.callback = self.app
         self.app.control = multi
         backing_off, release, online = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        clients = []
-        def connect(*args, **kwargs):
+        clients: list[review.BrokerClient] = []
+        def connect(*args: Any, **kwargs: Any) -> review.BrokerClient:
             client = review.BrokerClient(online)
             clients.append(client)
             return client
-        async def retry(delay):
+        async def retry(delay: float) -> None:
             self.assertEqual(delay, 5)
             backing_off.set()
             await release.wait()
-        mqtt._wait_retry = retry
-        with mock.patch("aiomqtt.Client", side_effect=connect), self.assertLogs("teslabot", "DEBUG") as logs:
+        with mock.patch.object(mqtt, "_wait_retry", side_effect=retry), \
+             mock.patch("aiomqtt.Client", side_effect=connect), self.assertLogs("teslabot", "DEBUG") as logs:
             runtime = self.start(multi.run())
             await asyncio.wait_for(backing_off.wait(), 1)
             self.assertEqual(self.adapter.products, 15)
@@ -201,7 +208,7 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
                 await runtime
         await mqtt.close()
 
-    async def test_logout_interrupts_real_response_recovery_and_keeps_mqtt_offline(self):
+    async def test_logout_interrupts_real_response_recovery_and_keeps_mqtt_offline(self) -> None:
         self.adapter.failures = -1
         mqtt = MqttControl(self.env)
         mqtt.set_app(self.app)
@@ -210,21 +217,22 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
         self.app.control = multi
         backing_off, reconciled = asyncio.Event(), asyncio.Event()
         original_wait, original_reconcile = mqtt._wait_retry, mqtt._reconcile
-        async def retry(delay):
+        async def retry(delay: float) -> None:
             backing_off.set()
             await original_wait(60)
-        async def reconcile(client, generation):
+        async def reconcile(client: aiomqtt.Client, generation: int) -> bool:
             result = await original_reconcile(client, generation)
             if result and not self.app.authorized:
                 reconciled.set()
             return result
-        mqtt._wait_retry, mqtt._reconcile = retry, reconcile
-        clients = []
-        def connect(*args, **kwargs):
+        clients: list[review.BrokerClient] = []
+        def connect(*args: Any, **kwargs: Any) -> review.BrokerClient:
             client = review.BrokerClient()
             clients.append(client)
             return client
-        with mock.patch("aiomqtt.Client", side_effect=connect), self.assertLogs("teslabot", "DEBUG") as logs:
+        with mock.patch.object(mqtt, "_wait_retry", side_effect=retry), \
+             mock.patch.object(mqtt, "_reconcile", side_effect=reconcile), \
+             mock.patch("aiomqtt.Client", side_effect=connect), self.assertLogs("teslabot", "DEBUG") as logs:
             runtime = self.start(multi.run())
             await asyncio.wait_for(backing_off.wait(), 1)
             await self.app._command_logout(control.CommandContext(True, self.chat), ())
@@ -243,23 +251,24 @@ class InterruptedResponseTests(unittest.IsolatedAsyncioTestCase):
                 await runtime
         await mqtt.close()
 
-    async def test_unrelated_programming_and_configuration_errors_remain_terminal(self):
+    async def test_unrelated_programming_and_configuration_errors_remain_terminal(self) -> None:
         for error in (RuntimeError(), ValueError(), requests.exceptions.InvalidURL(),
                       requests.exceptions.InvalidSchema(), control.ConfigError()):
             self.assertFalse(tesla.is_transient_error(error))
-        self.sdk.vehicle_list = mock.Mock(side_effect=RuntimeError("SECRET_SENTINEL"))
         mqtt = MqttControl(self.env)
         mqtt.set_app(self.app)
-        mqtt._wait_retry = mock.AsyncMock()
         multi = control.MultiControl([self.chat, mqtt])
         multi.callback = self.app
         self.app.control = multi
-        with mock.patch("aiomqtt.Client", return_value=review.BrokerClient()), self.assertLogs("teslabot", "DEBUG") as logs:
+        with mock.patch.object(self.sdk, "vehicle_list", side_effect=RuntimeError("SECRET_SENTINEL")), \
+             mock.patch.object(mqtt, "_wait_retry", new_callable=mock.AsyncMock) as retry, \
+             mock.patch("aiomqtt.Client", return_value=review.BrokerClient()), \
+             self.assertLogs("teslabot", "DEBUG") as logs:
             with self.assertRaises(RuntimeError):
                 await multi.run()
-        self.assertTrue(self.chat.stopped)
-        mqtt._wait_retry.assert_not_awaited()
-        self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
-        with self.assertRaises(RuntimeError):
-            await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
+            self.assertTrue(self.chat.stopped)
+            retry.assert_not_awaited()
+            self.assertIn("SECRET_SENTINEL", "\n".join(logs.output))
+            with self.assertRaises(RuntimeError):
+                await self.chat.process_message(control.CommandContext(False, self.chat), "!vehicles")
         await mqtt.close()

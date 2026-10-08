@@ -43,7 +43,7 @@ async def async_main() -> None:
         try:
             from importlib import metadata # type: ignore
             if os.getenv("ENVIRONMENT") == "gcp":
-                for ep in metadata.entry_points()['secret_sources']:
+                for ep in metadata.entry_points(group='secret_sources'):
                     if ep.name == 'gcp':
                         secrets = ep.load()()
         except ImportError as exn:
@@ -68,7 +68,8 @@ async def async_main() -> None:
                             _db = _db)
         env          = Env(config=config_,
                             state=state_)
-        children = []
+        children: list[control.Control] = []
+        mqtt_controls = []
         control_ = None
         app = None
         tasks = []
@@ -84,12 +85,13 @@ async def async_main() -> None:
                     log.getLogger("teslabot.slack").setLevel(log.DEBUG)
                 else:
                     from .mqtt import MqttControl
-                    children.append(MqttControl(env))
+                    mqtt_control = MqttControl(env)
+                    children.append(mqtt_control)
+                    mqtt_controls.append(mqtt_control)
             control_ = control.MultiControl(children)
             app = tesla.App(env=env, control=control_)
-            for child in children:
-                if not child.run_scheduled_commands:
-                    child.set_app(app)
+            for mqtt_control in mqtt_controls:
+                mqtt_control.set_app(app)
             await app.initialize()
             if not control_.run_scheduled_commands and not app.authorized:
                 raise control.ConfigError("MQTT-only startup requires cached Tesla authorization; authorize using a chat adapter first")

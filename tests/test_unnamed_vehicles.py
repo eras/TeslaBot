@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import threading
 import unittest
+from typing import Any, Mapping
 from unittest import mock
 
 import teslapy
@@ -12,26 +13,26 @@ import tests.test_sdk_boundary as boundary
 
 class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.fixture = boundary.SDKBoundaryTests()
         self.fixture.setUp()
         self.app, self.http, self.chat = self.fixture.app, self.fixture.http, self.fixture.chat
         self.identity = self.fixture.identity
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         await self.fixture.asyncTearDown()
 
-    def name(self, variant):
+    def name(self, variant: str) -> None:
         for data in (self.http.product, self.http.telemetry):
             if variant == "absent":
                 data.pop("display_name", None)
             else:
                 data["display_name"] = None if variant == "null" else ""
 
-    def assert_no_alias(self):
+    def assert_no_alias(self) -> None:
         before = len(self.http.calls)
         validator = tesla.ValidVehicle(self.app).make_validator()
         self.assertEqual(validator.parse(["Unnamed vehicle"]).__class__.__name__, "ParseFail")
@@ -41,14 +42,14 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.app._vehicle_id(metadata), self.identity)
         self.assertEqual(len(self.http.calls), before)
 
-    def assert_name(self, vehicle, variant):
+    def assert_name(self, vehicle: Mapping[str, Any], variant: str) -> None:
         if variant == "absent":
             self.assertNotIn("display_name", vehicle)
         else:
             self.assertIn("display_name", vehicle)
             self.assertEqual(vehicle.get("display_name"), None if variant == "null" else "")
 
-    async def test_online_blank_product_refreshes_and_all_mqtt_actions_publish(self):
+    async def test_online_blank_product_refreshes_and_all_mqtt_actions_publish(self) -> None:
         self.name("blank")
         for operation, payload in (("refresh", ""), ("ac", "ON"), ("sauna", "OFF"), ("charge_limit", "70")):
             with self.subTest(operation=operation):
@@ -71,7 +72,7 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(call[0].endswith("/wake_up") for call in self.http.calls))
         self.fixture.assert_worker_requests()
 
-    async def test_null_and_absent_names_work_for_mqtt_and_single_vehicle_paths(self):
+    async def test_null_and_absent_names_work_for_mqtt_and_single_vehicle_paths(self) -> None:
         for variant in ("null", "absent"):
             with self.subTest(variant=variant):
                 self.name(variant)
@@ -98,10 +99,10 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_no_alias()
         self.fixture.assert_worker_requests()
 
-    async def test_asleep_unnamed_wake_and_summary_do_not_lazy_fetch_telemetry(self):
+    async def test_asleep_unnamed_wake_and_summary_do_not_lazy_fetch_telemetry(self) -> None:
         original = teslapy.Vehicle.sync_wake_up
-        observed = []
-        def wake(vehicle):
+        observed: list[tuple[int, bool, Any]] = []
+        def wake(vehicle: Any) -> Any:
             observed.append((threading.get_ident(), self.app._operation_lock.locked(), vehicle.get("display_name")))
             return original(vehicle)
         with mock.patch("teslapy.Vehicle.sync_wake_up", new=wake), mock.patch("teslapy.time.sleep") as sleep, \
@@ -126,7 +127,7 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Unnamed vehicle is online", "\n".join(logs.output))
         self.fixture.assert_worker_requests()
 
-    async def test_temporary_name_restored_after_wake_errors(self):
+    async def test_temporary_name_restored_after_wake_errors(self) -> None:
         for variant in ("blank", "null", "absent"):
             self.name(variant)
             with self.subTest(variant=variant), \
@@ -141,7 +142,7 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.commands, 0)
         self.fixture.assert_worker_requests()
 
-    async def test_real_summary_name_is_not_overwritten_by_logging_restore(self):
+    async def test_real_summary_name_is_not_overwritten_by_logging_restore(self) -> None:
         for name in ("Observed summary name", "Unnamed vehicle"):
             self.name("absent")
             self.http.product["state"] = "asleep"
@@ -154,10 +155,10 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
         self.assert_no_alias()  # enumeration cache still represents product metadata
         self.fixture.assert_worker_requests()
 
-    async def test_cancellation_restores_name_before_releasing_operation_gate(self):
+    async def test_cancellation_restores_name_before_releasing_operation_gate(self) -> None:
         self.name("absent")
         entered, release = threading.Event(), threading.Event()
-        def wake(vehicle):
+        def wake(vehicle: Any) -> None:
             self.assertEqual(vehicle.get("display_name"), "Unnamed vehicle")
             entered.set()
             release.wait(2)
@@ -181,7 +182,7 @@ class UnnamedVehicleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.commands, 0)
         self.fixture.assert_worker_requests()
 
-    async def test_required_state_id_and_real_identity_still_fail_without_fetch(self):
+    async def test_required_state_id_and_real_identity_still_fail_without_fetch(self) -> None:
         self.name("blank")
         async with self.app._operation():
             for field in ("state", "id_s"):

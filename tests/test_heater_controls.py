@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from typing import Any
 
 from teslabot import tesla
 import tests.test_action_refresh_delay as delay
@@ -17,19 +18,19 @@ SEATS = {
 
 class HeaterControlTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.fixture = delay.RealSDKDelayTests()
         self.fixture.setUp()
         self.app, self.mqtt, self.http = self.fixture.app, self.fixture.mqtt, self.fixture.http
         self.identity = self.fixture.fixture.identity
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         await self.fixture.asyncTearDown()
 
-    async def test_every_seat_level_and_steering_state_use_sdk_and_delayed_observation(self):
+    async def test_every_seat_level_and_steering_state_use_sdk_and_delayed_observation(self) -> None:
         cases = [(seat, str(level), "remote_seat_heater_request", {"heater": index, "level": level})
                  for seat, index in SEATS.items() for level in range(4)]
         cases += [("steering_wheel_heater", payload, "remote_steering_wheel_heater_request", {"on": enabled})
@@ -65,7 +66,7 @@ class HeaterControlTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(publications[-1][1][seat], observed)
         self.fixture.fixture.assert_worker_requests()
 
-    async def test_failed_heaters_refresh_in_delayed_and_zero_modes(self):
+    async def test_failed_heaters_refresh_in_delayed_and_zero_modes(self) -> None:
         with self.fixture.clock.install():
             for seconds in (5, 0):
                 self.mqtt.action_refresh_delay = seconds
@@ -89,7 +90,7 @@ class HeaterControlTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(self.http.data_reads, reads + 1)
                         self.assertEqual(len(publications), 2)
 
-    async def test_invalid_retained_and_wrong_topics_do_not_supersede_pending_refresh(self):
+    async def test_invalid_retained_and_wrong_topics_do_not_supersede_pending_refresh(self) -> None:
         with self.fixture.clock.install():
             await self.fixture.handle("seat_heater_left", "3")
             event = await self.fixture.clock.next()
@@ -122,17 +123,21 @@ class HeaterControlTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(latest, 1)
             self.assertEqual(self.http.data_reads, 1)
 
-    async def test_app_validates_heater_values_before_sdk_calls(self):
+    async def test_app_validates_heater_values_before_sdk_calls(self) -> None:
+        # Deliberately bypass static input contracts to exercise runtime validation.
+        level: Any
         for seat, level in (("unknown", 1), ("seat_heater_left", True), ("seat_heater_right", "2"),
                             ("seat_heater_left", -1), ("seat_heater_left", 4), ("seat_heater_left", 1.0)):
             with self.assertRaises(tesla.ArgException):
                 await self.app.set_seat_heater(None, seat, level)
+        value: Any
         for value in (0, 1, "ON", None):
             with self.assertRaises(tesla.ArgException):
                 await self.app.set_steering_wheel_heater(None, value)
         self.assertEqual(self.http.calls, [])
 
-    async def test_steering_observation_preserves_false_and_resets_invalid_or_missing(self):
+    async def test_steering_observation_preserves_false_and_resets_invalid_or_missing(self) -> None:
+        value: object
         for value in (True, False, None, 0, 1, "false", [], {}):
             self.http.telemetry["climate_state"]["steering_wheel_heater"] = value
             snapshot = await self.app.refresh_vehicle(None)
@@ -142,7 +147,7 @@ class HeaterControlTests(unittest.IsolatedAsyncioTestCase):
         self.http.telemetry.pop("climate_state")
         self.assertIsNone((await self.app.refresh_vehicle(None)).steering_wheel_heater)
 
-    async def test_discovery_migrates_old_seat_sensors_in_owned_namespace(self):
+    async def test_discovery_migrates_old_seat_sensors_in_owned_namespace(self) -> None:
         fixture = delay.DelayTests()
         fixture.setUp()
         try:

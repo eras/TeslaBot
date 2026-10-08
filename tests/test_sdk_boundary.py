@@ -5,7 +5,7 @@ import threading
 import unittest
 import urllib.parse
 from unittest import mock
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Iterator, Optional
 
 import oauthlib.oauth2
 import requests
@@ -13,12 +13,12 @@ import requests.adapters
 import teslapy
 import urllib3.exceptions
 
-from teslabot import control, tesla
+from teslabot import control, locations, tesla
 from teslabot.mqtt import MqttControl, _Session
 import tests.test_multi_control_review as fixtures
 
 
-def telemetry():
+def telemetry() -> dict[str, Any]:
     return {
         "display_name": "SDK car",
         "gui_settings": {"gui_distance_units": "km/hr", "gui_temperature_units": "C"},
@@ -36,12 +36,12 @@ def telemetry():
 
 
 class HttpAdapter(requests.adapters.BaseAdapter):
-    def __init__(self, app):
+    def __init__(self, app: tesla.App) -> None:
         self.app = app
-        self.calls = []
+        self.calls: list[tuple[str, int, bool, bool, Any]] = []
         self.data_reads = 0
         self.commands = 0
-        self.product = {"id": 1, "id_s": "1", "vehicle_id": 1, "vin": "SDKVIN",
+        self.product: dict[str, Any] = {"id": 1, "id_s": "1", "vehicle_id": 1, "vin": "SDKVIN",
                         "display_name": "SDK car", "state": "online"}
         self.telemetry = telemetry()
         self.data_status = 200
@@ -51,11 +51,14 @@ class HttpAdapter(requests.adapters.BaseAdapter):
         self.command_interrupted = False
         self.summary = {"state": "online"}
 
-    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+    def send(self, request: requests.PreparedRequest, stream: bool = False,
+             timeout: Any = None, verify: Any = True, cert: Any = None,
+             proxies: Any = None) -> requests.Response:
         path = urllib.parse.urlparse(request.url or "").path
         self.calls.append((path, threading.get_ident(), self.app._operation_lock.locked(),
                            self.app._operation_owner is not None, request.body))
         status = 200
+        payload: dict[str, Any]
         if path.endswith("/products"):
             payload = {"response": [self.product]}
         elif path.endswith("/wake_up"):
@@ -81,24 +84,23 @@ class HttpAdapter(requests.adapters.BaseAdapter):
         response.request = request
         if self.command_interrupted and "/command/" in path:
             class Raw:
-                def stream(self, chunk_size, decode_content=True):
+                def stream(self, chunk_size: int, decode_content: bool = True) -> Iterator[bytes]:
                     raise urllib3.exceptions.ProtocolError("real response interruption detail")
-                    yield b""
             response.raw = Raw()
         else:
             response._content = json.dumps(payload).encode()
         return response
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    def setUp(self):
+    def setUp(self) -> None:
         fixture = fixtures.ReviewRegressionTests()
         fixture.setUp()
         self.app, self.chat, self.env = fixture.app, fixture.chat, fixture.env
@@ -109,52 +111,55 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.app.authorized = True
         self.http = HttpAdapter(self.app)
         self.sdk.mount("https://", self.http)
-        self.vehicles = []
+        self.vehicles: list[Any] = []
         original_list = self.sdk.vehicle_list
-        def enumerate_vehicles():
-            vehicles = original_list()
+        def enumerate_vehicles() -> list[Any]:
+            vehicles: list[Any] = original_list()
             self.vehicles.extend(vehicles)
             return vehicles
-        self.sdk.vehicle_list = enumerate_vehicles
+        self.vehicle_list_patch = mock.patch.object(self.sdk, "vehicle_list", side_effect=enumerate_vehicles)
+        self.vehicle_list_patch.start()
+        self.addCleanup(self.vehicle_list_patch.stop)
         self.mqtt = MqttControl(self.env)
         self.mqtt.set_app(self.app)
         self.identity = self.app._vehicle_id(self.http.product)
         self.mqtt.vehicles = {self.identity: "SDK car"}
         self.mqtt._generation = self.app.auth_generation
         self.main_thread = threading.get_ident()
-        self.retained = {}
-        self.publications = []
-        async def publish(topic, payload, **kwargs):
+        self.retained: dict[str, str] = {}
+        self.publications: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        async def publish(topic: str, payload: str, **kwargs: Any) -> None:
             self.publications.append((topic, json.loads(payload), kwargs))
             if kwargs.get("retain"):
                 self.retained[topic] = payload
         self.client = mock.Mock(publish=mock.AsyncMock(side_effect=publish))
         self.mqtt._session = _Session(self.client, self.app.auth_generation)
         original_sleep = asyncio.sleep
-        async def immediate(delay):
+        async def immediate(delay: float) -> None:
             await original_sleep(0)
         self.retry_sleep = mock.patch("teslabot.tesla.asyncio.sleep", side_effect=immediate)
         self.retry_sleep.start()
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         self.retry_sleep.stop()
         await self.mqtt.close()
         await self.app.close()
+        self.vehicle_list_patch.stop()
 
-    def assert_worker_requests(self):
+    def assert_worker_requests(self) -> None:
         self.assertTrue(self.http.calls)
         for path, thread, locked, owned, _ in self.http.calls:
             self.assertNotEqual(thread, self.main_thread, path)
             self.assertTrue(locked, path)
             self.assertTrue(owned, path)
 
-    async def handle(self, operation, payload):
+    async def handle(self, operation: str, payload: str) -> None:
         await self.mqtt._handle(self.client, f"teslabot/{self.identity}/{operation}/set", payload, False)
 
     def actions(self) -> list[tuple[Callable[..., Awaitable[tesla.ActionResult]], Any]]:
         return [(self.app.set_ac, True), (self.app.set_sauna, False), (self.app.set_charge_limit, 70)]
 
-    async def test_real_refresh_and_all_successful_action_publications(self):
+    async def test_real_refresh_and_all_successful_action_publications(self) -> None:
         for operation, value, endpoint, body in (
             ("refresh", "", None, None),
             ("ac", "ON", "auto_conditioning_start", {}),
@@ -183,15 +188,15 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("diagnostics", state)
         self.assert_worker_requests()
 
-    async def test_snapshot_and_nested_sdk_mappings_are_detached_inside_worker(self):
+    async def test_snapshot_and_nested_sdk_mappings_are_detached_inside_worker(self) -> None:
         original_data = teslapy.Vehicle.get_vehicle_data
-        threads = []
-        def capture(vehicle, *args, **kwargs):
+        threads: list[tuple[int, bool]] = []
+        def capture(vehicle: Any, *args: Any, **kwargs: Any) -> Any:
             value = original_data(vehicle, *args, **kwargs)
             value["nested_sdk"] = teslapy.JsonDict({"values": [teslapy.JsonDict({"items": [1, 2]})]})
             return value
         original_plain = tesla.plain_data
-        def observe(value):
+        def observe(value: Any) -> Any:
             threads.append((threading.get_ident(), self.app._operation_lock.locked()))
             return original_plain(value)
         with mock.patch("teslapy.Vehicle.get_vehicle_data", new=capture), \
@@ -205,7 +210,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         raw = self.vehicles[-1]
         self.assertIsInstance(raw, teslapy.Vehicle)
         async with self.app._operation():
-            def mutate():
+            def mutate() -> None:
                 raw["nested_sdk"]["values"][0]["items"].append(3)
                 raw["charge_state"]["battery_level"] = 99
                 raw["diagnostics"]["arbitrary"][0]["detail"] = "changed later"
@@ -220,7 +225,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(type(vehicle) is dict for vehicle in self.app.cached_vehicle_list))
         self.assert_worker_requests()
 
-    async def test_mqtt_projection_never_traverses_raw_vehicle_data(self):
+    async def test_mqtt_projection_never_traverses_raw_vehicle_data(self) -> None:
         snapshot = await self.app.refresh_vehicle(None)
         raw = self.vehicles[-1]
         snapshot.data = raw
@@ -232,7 +237,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.http.calls), calls)
         self.assertNotIn("data", self.publications[-1][1])
 
-    async def test_partial_and_null_data_are_unknown_or_controlled_without_fetch(self):
+    async def test_partial_and_null_data_are_unknown_or_controlled_without_fetch(self) -> None:
         context = control.CommandContext(False, self.chat)
         for section in ("gui_settings", "charge_state", "vehicle_state"):
             for null in (False, True):
@@ -260,7 +265,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.http.calls), calls)
         self.assert_worker_requests()
 
-    async def test_scalar_types_are_not_coerced_into_observations(self):
+    async def test_scalar_types_are_not_coerced_into_observations(self) -> None:
         self.http.telemetry = {"charge_state": {"battery_level": "80", "charging_state": 3,
                                                "charge_limit_soc": False, "charge_current_request": 16.5},
                                "climate_state": {"is_climate_on": "false", "defrost_mode": True,
@@ -278,7 +283,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("vehicle_state.locked", self.chat.messages[-1][1])
         self.assert_worker_requests()
 
-    async def test_complete_info_wording_and_delta_remain_observation_based(self):
+    async def test_complete_info_wording_and_delta_remain_observation_based(self) -> None:
         context = control.CommandContext(False, self.chat)
         await self.app._command_info(context, ((None, None), ()))
         self.assertIn("SDK car version sdk", self.chat.messages[-1][1])
@@ -292,7 +297,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.data_reads, 3)
         self.assert_worker_requests()
 
-    async def test_metadata_missing_fields_do_not_trigger_lazy_fetch(self):
+    async def test_metadata_missing_fields_do_not_trigger_lazy_fetch(self) -> None:
         self.http.product.pop("display_name")
         metadata = await self.app._get_vehicle_list()
         self.assertIs(type(metadata[0]), dict)
@@ -312,9 +317,9 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.data_reads, 1)
         self.assert_worker_requests()
 
-    async def test_location_consumers_use_detached_data_and_report_unavailable(self):
-        captured = []
-        async def location_command(context):
+    async def test_location_consumers_use_detached_data_and_report_unavailable(self) -> None:
+        captured: list[Optional[locations.LatLon]] = []
+        async def location_command(context: locations.LocationCommandContextBase) -> None:
             captured.append(await context.get_location(None))
         for drive in ({"latitude": 60.0, "longitude": 24.0}, None, {}, {"latitude": "60", "longitude": False}):
             self.http.telemetry = telemetry()
@@ -322,12 +327,13 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
             reads = self.http.data_reads
             await self.app._command_location(control.CommandContext(False, self.chat), location_command)
             self.assertEqual(self.http.data_reads, reads + 1)
+        assert captured[0] is not None
         self.assertEqual((captured[0].lat, captured[0].lon), (60.0, 24.0))
         self.assertEqual(captured[1:], [None, None, None])
         self.assertIn("location is unavailable", self.chat.messages[-1][1])
         self.assert_worker_requests()
 
-    async def test_real_command_success_and_rejection_all_typed_apis(self):
+    async def test_real_command_success_and_rejection_all_typed_apis(self) -> None:
         for method, value in self.actions():
             with self.subTest(method=method.__name__):
                 self.http.command_result = True
@@ -346,7 +352,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.data_reads, 0)
         self.assert_worker_requests()
 
-    async def test_expected_real_requests_failures_return_typed_results(self):
+    async def test_expected_real_requests_failures_return_typed_results(self) -> None:
         for status, error, expected_attempts, detail in (
             (400, None, 1, "HTTP command failure detail"),
             (503, None, 15, "HTTP command failure detail"),
@@ -371,7 +377,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(self.http.data_reads, 0)
         self.assert_worker_requests()
 
-    async def test_auth_failure_returns_failure_and_invalidates_old_generation(self):
+    async def test_auth_failure_returns_failure_and_invalidates_old_generation(self) -> None:
         self.http.command_status = 401
         result = await self.app.set_ac(None, True, vehicle_id=self.identity)
         self.assertFalse(result.success)
@@ -393,7 +399,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.app.authorized)
         self.assert_worker_requests()
 
-    async def test_failed_mqtt_actions_refresh_observed_state(self):
+    async def test_failed_mqtt_actions_refresh_observed_state(self) -> None:
         await self.handle("refresh", "")
         prior = dict(self.retained)
         for mode in ("rejected", "http", "timeout"):
@@ -417,7 +423,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(observed, previous)
         self.assert_worker_requests()
 
-    async def test_followup_read_failure_preserves_truthful_acceptance_and_prior_state(self):
+    async def test_followup_read_failure_preserves_truthful_acceptance_and_prior_state(self) -> None:
         await self.handle("refresh", "")
         prior = dict(self.retained)
         self.http.data_status = 400
@@ -434,7 +440,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.retained, prior)
         self.assert_worker_requests()
 
-    async def test_invalid_arguments_cancellation_and_programming_errors_propagate(self):
+    async def test_invalid_arguments_cancellation_and_programming_errors_propagate(self) -> None:
         invalid: list[tuple[Callable[..., Awaitable[tesla.ActionResult]], Any]] = [
             (self.app.set_ac, "ON"), (self.app.set_sauna, 1),
             (self.app.set_charge_limit, True), (self.app.set_charge_limit, 101)]
@@ -450,7 +456,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.data_reads, 0)
         self.assert_worker_requests()
 
-    async def test_actual_requests_interrupted_command_response_is_typed_failure(self):
+    async def test_actual_requests_interrupted_command_response_is_typed_failure(self) -> None:
         self.http.command_interrupted = True
         with self.assertLogs("teslabot.tesla", "ERROR") as logs:
             result = await self.app.set_ac(None, True)
@@ -462,7 +468,7 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.http.data_reads, 0)
         self.assert_worker_requests()
 
-    async def test_sdk_object_selection_is_internal_to_operation_gate(self):
+    async def test_sdk_object_selection_is_internal_to_operation_gate(self) -> None:
         with self.assertRaisesRegex(tesla.AppException, "operation gate"):
             await self.app._get_vehicle_list(sdk_objects=True)
         self.assertEqual(self.http.calls, [])
@@ -472,8 +478,9 @@ class SDKBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(type(self.app.cached_vehicle_list[0]), dict)
         self.assert_worker_requests()
 
-    async def test_missing_null_and_nonmapping_sections_publish_unknown_scalars(self):
-        for value in (None, [], "unavailable", 4):
+    async def test_missing_null_and_nonmapping_sections_publish_unknown_scalars(self) -> None:
+        values: tuple[object, ...] = (None, [], "unavailable", 4)
+        for value in values:
             with self.subTest(value=value):
                 self.http.telemetry = {"charge_state": value, "climate_state": value}
                 self.publications.clear()

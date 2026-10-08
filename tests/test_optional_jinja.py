@@ -4,7 +4,7 @@ import unittest
 
 
 class OptionalJinjaTests(unittest.TestCase):
-    def test_missing_jinja_discovery_preserves_core_timestamp_tests(self):
+    def test_missing_jinja_discovery_preserves_core_timestamp_tests(self) -> None:
         script = r'''
 import importlib.abc
 import io

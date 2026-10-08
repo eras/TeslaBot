@@ -15,6 +15,8 @@ from typing import (
     NewType,
     Set,
     AsyncIterator,
+    Literal,
+    overload,
 )
 import re
 import datetime
@@ -957,20 +959,26 @@ class App(ControlCallback):
                     raise AppException("Unable to start authorization; check credential storage/connectivity and retry !authorize") from exn
                 return url if generation == self.auth_generation and not self.authorized else None
 
+    @overload
+    async def _get_vehicle_list(self, sdk_objects: Literal[True]) -> List[teslapy.Vehicle]: ...
+
+    @overload
+    async def _get_vehicle_list(self, sdk_objects: Literal[False] = False) -> List[Dict[str, Any]]: ...
+
     async def _get_vehicle_list(self, sdk_objects: bool = False) -> List[Any]:
         if sdk_objects and self._operation_owner is not asyncio.current_task():
             raise AppException("SDK vehicle selection requires the Tesla operation gate")
         if not self.authorized:
             raise AppException("Tesla authorization required")
         generation = self.auth_generation
-        def call() -> Tuple[List[Any], List[Dict[str, Any]]]:
+        def call() -> Tuple[List[teslapy.Vehicle], List[Dict[str, Any]]]:
             vehicle_list = self.tesla.vehicle_list()
             if self.override_vehicles_lc != set():
                 vehicle_list = [
                     vehicle
                     for vehicle in vehicle_list
-                    if isinstance(vehicle.get("display_name"), str)
-                    and vehicle.get("display_name").lower() in self.override_vehicles_lc
+                    if isinstance(name := vehicle.get("display_name"), str)
+                    and name.lower() in self.override_vehicles_lc
                 ]
             return vehicle_list, [plain_data(vehicle) for vehicle in vehicle_list]
 
@@ -998,8 +1006,8 @@ class App(ControlCallback):
             vehicles = [
                 vehicle
                 for vehicle in vehicles
-                if isinstance(vehicle.get("display_name"), str)
-                and vehicle.get("display_name").lower() == display_name.lower()
+                if isinstance(name := vehicle.get("display_name"), str)
+                and name.lower() == display_name.lower()
             ]
         if len(vehicles) > 1:
             raise ArgException("Matched more than one vehicle; aborting")
@@ -1565,7 +1573,7 @@ class App(ControlCallback):
         num_retries = 0
         result_is_set = False
         result: T
-        error = None
+        error: Optional[Exception] = None
         while num_retries < 15:
             if generation != self.auth_generation:
                 raise AppException("Authorization changed; retry discarded")
